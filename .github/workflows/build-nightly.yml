@@ -32,10 +32,13 @@ jobs:
             -project Feather.xcodeproj \
             -scheme Feather \
             -configuration Release \
-            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
             -derivedDataPath build \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
             SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) NIGHTLY' \
             CODE_SIGNING_ALLOWED=NO \
+            ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=NO \
             build
 
       - name: Package IPA
@@ -44,9 +47,12 @@ jobs:
           set -euo pipefail
           APP_PATH="build/Build/Products/Release-iphoneos/Feather.app"
           test -d "$APP_PATH"
+          rm -rf Payload Feather-NIGHTLY.ipa
           mkdir -p Payload
-          cp -R "$APP_PATH" Payload/
-          zip -qry Feather-NIGHTLY.ipa Payload
+          cp -R "$APP_PATH" Payload/Feather.app
+          chmod -R 0755 Payload/Feather.app
+          codesign --force --sign - --timestamp=none Payload/Feather.app
+          ditto -c -k --sequesterRsrc --keepParent Payload Feather-NIGHTLY.ipa
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

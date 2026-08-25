@@ -11,12 +11,19 @@ import NimbleViews
 
 struct UpdatesView: View {
 	@StateObject private var updateManager = UpdateManager.shared
+	@State private var _selectedSigningAppPresenting: AnyApp?
 	
 	@FetchRequest(
 		entity: AltSource.entity(),
 		sortDescriptors: [NSSortDescriptor(keyPath: \AltSource.name, ascending: true)],
 		animation: .snappy
 	) private var _sources: FetchedResults<AltSource>
+	
+	@FetchRequest(
+		entity: Imported.entity(),
+		sortDescriptors: [NSSortDescriptor(keyPath: \Imported.date, ascending: false)],
+		animation: .snappy
+	) private var _importedApps: FetchedResults<Imported>
 	
 	private var _updateEntries: [AppUpdate] {
 		updateManager.availableUpdates
@@ -39,6 +46,9 @@ struct UpdatesView: View {
 						}
 					}
 				}
+			}
+			.refreshable {
+				await _checkForUpdates()
 			}
 			.overlay {
 				if updateManager.isChecking && _updateCount == 0 {
@@ -73,6 +83,13 @@ struct UpdatesView: View {
 					.accessibilityLabel(.localized("Check for Updates"))
 				}
 			}
+			.fullScreenCover(item: $_selectedSigningAppPresenting) { app in
+				SigningView(app: app.base)
+			}
+			.onReceive(NotificationCenter.default.publisher(for: Notification.Name("Feather.updateImported"))) { notification in
+				guard let uuid = notification.userInfo?["uuid"] as? String else { return }
+				_openSigningView(for: uuid)
+			}
 			.task {
 				await _checkForUpdates()
 			}
@@ -83,6 +100,18 @@ struct UpdatesView: View {
 		await updateManager.checkForUpdates(
 			sources: Array(_sources)
 		)
+	}
+	
+	private func _openSigningView(for uuid: String) {
+		Task { @MainActor in
+			for _ in 0..<8 {
+				if let imported = _importedApps.first(where: { $0.uuid == uuid }) {
+					_selectedSigningAppPresenting = AnyApp(base: imported)
+					return
+				}
+				try? await Task.sleep(nanoseconds: 100_000_000)
+			}
+		}
 	}
 }
 

@@ -1,4 +1,4 @@
-name: Build Feather Nightly
+name: Build Feather NIGHTLY
 
 on:
   workflow_dispatch:
@@ -6,9 +6,13 @@ on:
     branches:
       - feature/updates-tab
 
+permissions:
+  contents: read
+
 jobs:
   build:
-    runs-on: macos-15
+    runs-on: macos-latest
+    timeout-minutes: 60
 
     steps:
       - name: Checkout
@@ -16,46 +20,224 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Select Xcode 26.2
-        uses: maxim-lobanov/setup-xcode@v1
+      - name: Selecionar Xcode 26.2 do build validado
+        run: |
+          set -euo pipefail
+
+          XCODE_PATH=""
+          for candidate in /Applications/Xcode_26.2.app /Applications/Xcode_26.2.0.app
+          do
+            if [ -d "$candidate" ]; then
+              XCODE_PATH="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$XCODE_PATH" ]; then
+            echo 'ERRO: Xcode 26.2 não está instalado neste runner.'
+            ls -1 /Applications | grep '^Xcode' || true
+            exit 1
+          fi
+
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+          swift --version
+
+          XCODE_VERSION="$(xcodebuild -version | sed -n '1p')"
+          XCODE_BUILD="$(xcodebuild -version | sed -n '2p')"
+
+          if [ "$XCODE_VERSION" != "Xcode 26.2" ]; then
+            echo "ERRO: esperado Xcode 26.2, encontrado: $XCODE_VERSION"
+            exit 1
+          fi
+
+          if [ "$XCODE_BUILD" != "Build version 17C52" ]; then
+            echo "ERRO: esperado build 17C52, encontrado: $XCODE_BUILD"
+            exit 1
+          fi
+
+          echo 'Xcode 26.2 (17C52) confirmado.'
+
+      - name: Travar dependências oficiais
+        run: |
+          set -euo pipefail
+
+          RESOLVED='Feather.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'
+
+          if [ ! -f "$RESOLVED" ]; then
+            echo 'ERRO: Package.resolved oficial não encontrado.'
+            exit 1
+          fi
+
+          python3 <<'PY'
+          from pathlib import Path
+          import json
+
+          resolved = Path(
+              "Feather.xcodeproj/project.xcworkspace/"
+              "xcshareddata/swiftpm/Package.resolved"
+          )
+          data = json.loads(resolved.read_text(encoding="utf-8"))
+          pins = {
+              item["identity"]: item["state"].get("version")
+              for item in data["pins"]
+          }
+          expected = {
+              "apikit": "5.4.0",
+              "async-http-client": "1.25.2",
+              "nuke": "12.8.0",
+              "swift-nio": "2.82.1",
+              "swift-system": "1.4.2",
+              "vapor": "4.104.0",
+              "zip": "2.1.2",
+          }
+          for package, version in expected.items():
+              actual = pins.get(package)
+              if actual != version:
+                  raise SystemExit(
+                      f"ERRO: {package}: esperado {version}, encontrado {actual}."
+                  )
+          print(f"Package.resolved carregado com {len(data['pins'])} dependências.")
+          PY
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("Makefile")
+          text = path.read_text(encoding="utf-8")
+          flag = "-disableAutomaticPackageResolution"
+
+          if flag not in text:
+              needle = "\t\t-skipPackagePluginValidation \\\n"
+              if needle not in text:
+                  raise SystemExit(
+                      "ERRO: ponto de inserção para travar a resolução dos pacotes não encontrado."
+                  )
+              text = text.replace(
+                  needle,
+                  needle + "\t\t-disableAutomaticPackageResolution \\\n",
+                  1,
+              )
+              path.write_text(text, encoding="utf-8")
+
+          if flag not in path.read_text(encoding="utf-8"):
+              raise SystemExit("ERRO: -disableAutomaticPackageResolution não foi aplicado.")
+
+          print("Resolução automática desativada.")
+          PY
+
+      - name: Ativar NIGHTLY somente no target Feather
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          project = Path("Feather.xcodeproj/project.pbxproj")
+          text = project.read_text(encoding="utf-8")
+
+          target_configs = {
+              "3379C1CE2DA869A3004372DA": "Debug",
+              "3379C1CF2DA869A3004372DA": "Release",
+          }
+
+          for config_id, config_name in target_configs.items():
+              block_pattern = re.compile(
+                  rf"({re.escape(config_id)} /\* {config_name} \*/ = \{{"
+                  rf".*?buildSettings = \{{\n)"
+                  rf"(.*?)"
+                  rf"(\n\t\t\t\}};\n\t\t\tname = {config_name};)",
+                  re.DOTALL,
+              )
+              match = block_pattern.search(text)
+              if not match:
+                  raise SystemExit(
+                      f"ERRO: configuração {config_name} do target Feather não encontrada."
+                  )
+
+              block = match.group(2)
+              condition_pattern = re.compile(
+                  r'(^\s*SWIFT_ACTIVE_COMPILATION_CONDITIONS\s*=\s*)'
+                  r'(".*?"|[^;]*)(;)',
+                  re.MULTILINE,
+              )
+              condition_match = condition_pattern.search(block)
+              if not condition_match:
+                  raise SystemExit(
+                      f"ERRO: SWIFT_ACTIVE_COMPILATION_CONDITIONS não encontrada em {config_name}."
+                  )
+
+              raw_value = condition_match.group(2).strip()
+              if raw_value.startswith('"') and raw_value.endswith('"'):
+                  value = raw_value[1:-1]
+              else:
+                  value = raw_value
+
+              tokens = [token for token in value.split() if token]
+              if "NIGHTLY" not in tokens:
+                  tokens.append("NIGHTLY")
+
+              new_value = " ".join(tokens)
+              replacement = (
+                  condition_match.group(1)
+                  + f'"{new_value}"'
+                  + condition_match.group(3)
+              )
+              new_block = (
+                  block[:condition_match.start()]
+                  + replacement
+                  + block[condition_match.end():]
+              )
+              text = (
+                  text[:match.start(2)]
+                  + new_block
+                  + text[match.end(2):]
+              )
+              print(
+                  f"{config_name}: SWIFT_ACTIVE_COMPILATION_CONDITIONS={new_value!r}"
+              )
+
+          project.write_text(text, encoding="utf-8")
+          PY
+
+          if grep -q 'SWIFT_ACTIVE_COMPILATION_CONDITIONS=NIGHTLY' Makefile
+          then
+            echo 'ERRO: NIGHTLY global foi aplicado ao Makefile.'
+            exit 1
+          fi
+
+          grep -q '#if !NIGHTLY && !DEBUG' Feather/Views/Settings/SettingsView.swift
+          echo 'NIGHTLY restrito ao target Feather.'
+
+      - name: Compilar Feather NIGHTLY para iPhone
+        run: |
+          set -o pipefail
+          make iphoneos 2>&1 | tee feather-build.log
+
+      - name: Publicar log da compilação
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          xcode-version: '26.2'
+          name: Feather-build-log
+          path: feather-build.log
+          if-no-files-found: warn
+          retention-days: 7
 
-      - name: Show Xcode version
-        run: xcodebuild -version
-
-      - name: Build Feather NIGHTLY
-        shell: bash
+      - name: Validar IPA gerado pelo Makefile
         run: |
           set -euo pipefail
-          xcodebuild \
-            -project Feather.xcodeproj \
-            -scheme Feather \
-            -configuration Release \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath build \
-            -skipPackagePluginValidation \
-            -skipMacroValidation \
-            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) NIGHTLY' \
-            CODE_SIGNING_ALLOWED=NO \
-            ALWAYS_EMBED_SWIFT_STANDARD_LIBRARIES=NO \
-            build
+          test -f packages/Feather.ipa
+          unzip -t packages/Feather.ipa >/dev/null
+          cp packages/Feather.ipa Feather-NIGHTLY.ipa
+          echo 'IPA NIGHTLY validado.'
+          ls -lh Feather-NIGHTLY.ipa
 
-      - name: Package IPA
-        shell: bash
-        run: |
-          set -euo pipefail
-          APP_PATH="build/Build/Products/Release-iphoneos/Feather.app"
-          test -d "$APP_PATH"
-          rm -rf Payload Feather-NIGHTLY.ipa
-          mkdir -p Payload
-          cp -R "$APP_PATH" Payload/Feather.app
-          chmod -R 0755 Payload/Feather.app
-          codesign --force --sign - --timestamp=none Payload/Feather.app
-          ditto -c -k --sequesterRsrc --keepParent Payload Feather-NIGHTLY.ipa
-
-      - name: Upload artifact
+      - name: Publicar Feather NIGHTLY
         uses: actions/upload-artifact@v4
         with:
           name: Feather-NIGHTLY
           path: Feather-NIGHTLY.ipa
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

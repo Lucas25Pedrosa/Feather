@@ -111,6 +111,15 @@ extension ResetView {
 				}
 			}
 			
+			Button(.localized("Reset Update History"), systemImage: "arrow.triangle.2.circlepath.circle") {
+				Self.resetAlert(
+					title: .localized("Reset Update History"),
+					message: "\(InstallationRegistry.shared.records.count)"
+				) {
+					Self.resetUpdateHistory()
+				}
+			}
+			
 			Button(.localized("Reset Certificates"), systemImage: "xmark.circle") {
 				Self.resetAlert(
 					title: .localized("Reset Certificates"),
@@ -183,6 +192,10 @@ extension ResetView {
 		try? FileManager.default.removeFileIfNeeded(at: FileManager.default.unsigned)
 	}
 	
+	static func resetUpdateHistory() {
+		InstallationRegistry.shared.reset()
+	}
+	
 	static func resetCertificates(resetAll: Bool = false) {
 		if !resetAll { UserDefaults.standard.set(0, forKey: "feather.selectedCert") }
 		Storage.shared.clearContext(request: CertificatePair.fetchRequest())
@@ -199,6 +212,7 @@ extension ResetView {
 		resetSources()
 		deleteSignedApps()
 		deleteImportedApps()
+		resetUpdateHistory()
 		resetCertificates(resetAll: true)
 		resetUserDefaults()
 	}

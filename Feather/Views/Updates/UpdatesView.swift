@@ -9,6 +9,12 @@ import SwiftUI
 import CoreData
 import NimbleViews
 
+private struct UpdateEntry: Identifiable {
+	let id: String
+	let app: AppInfoPresentable
+	let update: AppUpdate
+}
+
 struct UpdatesView: View {
 	@StateObject private var updateManager = UpdateManager.shared
 	
@@ -30,9 +36,32 @@ struct UpdatesView: View {
 		animation: .snappy
 	) private var _sources: FetchedResults<AltSource>
 	
+	private var _updateEntries: [UpdateEntry] {
+		var seen = Set<String>()
+		var entries: [UpdateEntry] = []
+		
+		func append(_ app: AppInfoPresentable) {
+			guard let update = updateManager.update(for: app) else { return }
+			
+			let key = [
+				update.sourceProvenance.sourceRepositoryURL.absoluteString,
+				update.sourceProvenance.sourceAppIdentifier,
+				app.identifier ?? update.bundleIdentifier
+			].joined(separator: "|")
+			
+			guard seen.insert(key).inserted else { return }
+			entries.append(UpdateEntry(id: key, app: app, update: update))
+		}
+		
+		// Signed apps are preferred over their matching Imported entry.
+		_signedApps.forEach { append($0 as AppInfoPresentable) }
+		_importedApps.forEach { append($0 as AppInfoPresentable) }
+		
+		return entries
+	}
+	
 	private var _updateCount: Int {
-		_signedApps.filter { updateManager.update(for: $0) != nil }.count
-		+ _importedApps.filter { updateManager.update(for: $0) != nil }.count
+		_updateEntries.count
 	}
 	
 	var body: some View {
@@ -43,16 +72,8 @@ struct UpdatesView: View {
 						.localized("Available Updates"),
 						secondary: _updateCount.description
 					) {
-						ForEach(_signedApps, id: \.uuid) { app in
-							if let update = updateManager.update(for: app) {
-								UpdateCellView(app: app, update: update)
-							}
-						}
-						
-						ForEach(_importedApps, id: \.uuid) { app in
-							if let update = updateManager.update(for: app) {
-								UpdateCellView(app: app, update: update)
-							}
+						ForEach(_updateEntries) { entry in
+							UpdateCellView(app: entry.app, update: entry.update)
 						}
 					}
 				}

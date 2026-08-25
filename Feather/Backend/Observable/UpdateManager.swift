@@ -6,7 +6,6 @@
 //
 
 import AltSourceKit
-import CoreData
 import Foundation
 import NimbleJSON
 
@@ -17,6 +16,8 @@ struct AppUpdate: Identifiable, Equatable {
 	let remoteVersion: String
 	let appName: String
 	let bundleIdentifier: String
+	let localBundleIdentifier: String
+	let iconURL: URL?
 	let downloadURL: URL
 	let sourceURL: URL
 	let sourceProvenance: SourceAppProvenance
@@ -36,14 +37,45 @@ final class UpdateManager: ObservableObject {
 	
 	private init() {}
 	
+	var availableUpdates: [AppUpdate] {
+		updates.values.sorted {
+			$0.appName.localizedCaseInsensitiveCompare($1.appName) == .orderedAscending
+		}
+	}
+	
 	func update(for app: AppInfoPresentable) -> AppUpdate? {
-		guard let uuid = app.uuid else { return nil }
-		return updates[uuid]
+		guard
+			let localBundleIdentifier = app.identifier,
+			!localBundleIdentifier.isEmpty
+		else {
+			return nil
+		}
+		
+		if
+			let metadata = Storage.shared.sourceMetadata(for: app),
+			let sourceURL = metadata.sourceRepositoryURL,
+			let sourceAppIdentifier = metadata.sourceAppIdentifier
+		{
+			if let exact = updates.values.first(where: {
+				$0.localBundleIdentifier == localBundleIdentifier
+					&& $0.sourceProvenance.sourceAppIdentifier == sourceAppIdentifier
+					&& _matchesStoredRepository(
+						storedSourceURL: $0.sourceURL,
+						sourceURL: sourceURL
+					)
+			}) {
+				return exact
+			}
+		}
+		
+		return updates.values.first {
+			$0.localBundleIdentifier == localBundleIdentifier
+		}
 	}
 	
 	func checkForUpdates(
 		sources: [AltSource],
-		localApps: [AppInfoPresentable]
+		localApps: [AppInfoPresentable] = []
 	) async {
 		guard !isChecking else { return }
 		
@@ -53,8 +85,15 @@ final class UpdateManager: ObservableObject {
 			lastCheckedDate = Date()
 		}
 		
+		// Library entries are intentionally not the authority anymore.
+		// They remain in the signature so existing callers do not need special handling.
+		_ = localApps
+		
 		let repositories = await _fetchRepositories(from: sources)
-		updates = _findUpdates(repositories: repositories, localApps: localApps)
+		updates = _findUpdates(
+			repositories: repositories,
+			installedApps: InstallationRegistry.shared.records
+		)
 	}
 	
 	private func _fetchRepositories(from sources: [AltSource]) async -> [(AltSource, ASRepository)] {
@@ -90,90 +129,37 @@ final class UpdateManager: ObservableObject {
 	
 	private func _findUpdates(
 		repositories: [(AltSource, ASRepository)],
-		localApps: [AppInfoPresentable]
+		installedApps: [InstalledSourceAppRecord]
 	) -> [String: AppUpdate] {
 		var foundUpdates: [String: AppUpdate] = [:]
-		let metadataByUUID = Storage.shared.getSourceMetadata().reduce(into: [String: AppSourceMetadata]()) {
-			$0[$1.appUUID] = $1
-		}
-		let metadataCandidates = localApps.compactMap { app -> SourceMetadataCandidate? in
-			guard
-				let uuid = app.uuid,
-				let metadata = metadataByUUID[uuid]
-			else {
-				return nil
-			}
-			return SourceMetadataCandidate(appUUID: uuid, app: app, metadata: metadata)
-		}
 		
-		for localApp in localApps {
-			guard let localUUID = localApp.uuid else {
-				continue
-			}
-			
-			let sourceAppIdentifier: String
-			let sourceAppVersion: String?
-			let storedSourceURL: URL
-			if let directMetadata = metadataByUUID[localUUID] {
-				guard
-					let metadataSourceAppIdentifier = directMetadata.sourceAppIdentifier,
-					let metadataSourceURL = directMetadata.sourceRepositoryURL
-				else {
-					continue
-				}
-				
-				sourceAppIdentifier = metadataSourceAppIdentifier
-				sourceAppVersion = directMetadata.sourceAppVersion
-				storedSourceURL = metadataSourceURL
-			} else if let fallback = _fallbackMetadataCandidate(
-				for: localApp,
-				localUUID: localUUID,
-				candidates: metadataCandidates
-			) {
-				guard
-					let metadataSourceAppIdentifier = fallback.metadata.sourceAppIdentifier,
-					let metadataSourceURL = fallback.metadata.sourceRepositoryURL
-				else {
-					continue
-				}
-				
-				sourceAppIdentifier = metadataSourceAppIdentifier
-				sourceAppVersion = fallback.metadata.sourceAppVersion
-				storedSourceURL = metadataSourceURL
-				Storage.shared.copySourceMetadata(
-					from: fallback.appUUID,
-					to: localUUID,
-					kind: localApp.isSigned ? .signed : .imported
-				)
-			} else if
-				let localSourceURL = localApp.source,
-				let localIdentifier = localApp.identifier
-			{
-				sourceAppIdentifier = localIdentifier
-				sourceAppVersion = localApp.version
-				storedSourceURL = localSourceURL
-			} else {
-				continue
-			}
-			
+		for installedApp in installedApps {
 			for (source, repository) in repositories {
 				guard let sourceURL = source.sourceURL else {
 					continue
 				}
 				
-				guard _matchesStoredRepository(storedSourceURL: storedSourceURL, sourceURL: sourceURL) else {
+				guard _matchesStoredRepository(
+					storedSourceURL: installedApp.sourceRepositoryURL,
+					sourceURL: sourceURL
+				) else {
 					continue
 				}
 				
-				guard let remoteApp = repository.apps.first(where: { $0.id == sourceAppIdentifier }) else {
+				guard let remoteApp = repository.apps.first(where: {
+					$0.id == installedApp.sourceAppIdentifier
+				}) else {
 					continue
 				}
 				
-				guard let remoteVersion = remoteApp.currentVersion, !remoteVersion.isEmpty else {
+				guard
+					let remoteVersion = remoteApp.currentVersion,
+					!remoteVersion.isEmpty
+				else {
 					continue
 				}
 				
-				guard remoteVersion != sourceAppVersion else {
+				guard remoteVersion != installedApp.installedVersion else {
 					continue
 				}
 				
@@ -189,13 +175,15 @@ final class UpdateManager: ObservableObject {
 					continue
 				}
 				
-				foundUpdates[localUUID] = AppUpdate(
-					id: localUUID,
-					localUUID: localUUID,
-					localVersion: sourceAppVersion ?? localApp.version,
+				foundUpdates[installedApp.id] = AppUpdate(
+					id: installedApp.id,
+					localUUID: installedApp.id,
+					localVersion: installedApp.installedVersion,
 					remoteVersion: remoteVersion,
 					appName: remoteApp.currentName,
-					bundleIdentifier: sourceAppIdentifier,
+					bundleIdentifier: installedApp.sourceAppIdentifier,
+					localBundleIdentifier: installedApp.localBundleIdentifier,
+					iconURL: remoteApp.iconURL,
 					downloadURL: downloadURL,
 					sourceURL: sourceURL,
 					sourceProvenance: provenance
@@ -226,31 +214,4 @@ final class UpdateManager: ObservableObject {
 		let absoluteString = normalized.absoluteString
 		return absoluteString.hasSuffix("/") ? String(absoluteString.dropLast()) : absoluteString
 	}
-	
-	private func _fallbackMetadataCandidate(
-		for localApp: AppInfoPresentable,
-		localUUID: String,
-		candidates: [SourceMetadataCandidate]
-	) -> SourceMetadataCandidate? {
-		guard
-			localApp.isSigned,
-			let localIdentifier = localApp.identifier,
-			let localVersion = localApp.version
-		else {
-			return nil
-		}
-		
-		return candidates.first {
-			$0.appUUID != localUUID &&
-			!$0.app.isSigned &&
-			$0.app.identifier == localIdentifier &&
-			$0.app.version == localVersion
-		}
-	}
-}
-
-private struct SourceMetadataCandidate {
-	let appUUID: String
-	let app: AppInfoPresentable
-	let metadata: AppSourceMetadata
 }

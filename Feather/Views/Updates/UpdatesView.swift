@@ -9,26 +9,8 @@ import SwiftUI
 import CoreData
 import NimbleViews
 
-private struct UpdateEntry: Identifiable {
-	let id: String
-	let app: AppInfoPresentable
-	let update: AppUpdate
-}
-
 struct UpdatesView: View {
 	@StateObject private var updateManager = UpdateManager.shared
-	
-	@FetchRequest(
-		entity: Signed.entity(),
-		sortDescriptors: [NSSortDescriptor(keyPath: \Signed.date, ascending: false)],
-		animation: .snappy
-	) private var _signedApps: FetchedResults<Signed>
-	
-	@FetchRequest(
-		entity: Imported.entity(),
-		sortDescriptors: [NSSortDescriptor(keyPath: \Imported.date, ascending: false)],
-		animation: .snappy
-	) private var _importedApps: FetchedResults<Imported>
 	
 	@FetchRequest(
 		entity: AltSource.entity(),
@@ -36,28 +18,8 @@ struct UpdatesView: View {
 		animation: .snappy
 	) private var _sources: FetchedResults<AltSource>
 	
-	private var _updateEntries: [UpdateEntry] {
-		var seen = Set<String>()
-		var entries: [UpdateEntry] = []
-		
-		func append(_ app: AppInfoPresentable) {
-			guard let update = updateManager.update(for: app) else { return }
-			
-			let key = [
-				update.sourceProvenance.sourceRepositoryURL.absoluteString,
-				update.sourceProvenance.sourceAppIdentifier,
-				app.identifier ?? update.bundleIdentifier
-			].joined(separator: "|")
-			
-			guard seen.insert(key).inserted else { return }
-			entries.append(UpdateEntry(id: key, app: app, update: update))
-		}
-		
-		// Signed apps are preferred over their matching Imported entry.
-		_signedApps.forEach { append($0 as AppInfoPresentable) }
-		_importedApps.forEach { append($0 as AppInfoPresentable) }
-		
-		return entries
+	private var _updateEntries: [AppUpdate] {
+		updateManager.availableUpdates
 	}
 	
 	private var _updateCount: Int {
@@ -72,8 +34,8 @@ struct UpdatesView: View {
 						.localized("Available Updates"),
 						secondary: _updateCount.description
 					) {
-						ForEach(_updateEntries) { entry in
-							UpdateCellView(app: entry.app, update: entry.update)
+						ForEach(_updateEntries) { update in
+							UpdateCellView(update: update)
 						}
 					}
 				}
@@ -118,12 +80,8 @@ struct UpdatesView: View {
 	}
 	
 	private func _checkForUpdates() async {
-		let localApps = _signedApps.map { $0 as AppInfoPresentable }
-			+ _importedApps.map { $0 as AppInfoPresentable }
-		
 		await updateManager.checkForUpdates(
-			sources: Array(_sources),
-			localApps: localApps
+			sources: Array(_sources)
 		)
 	}
 }
@@ -132,7 +90,6 @@ private struct UpdateCellView: View {
 	@Environment(\.horizontalSizeClass) private var horizontalSizeClass
 	@ObservedObject private var downloadManager = DownloadManager.shared
 	
-	let app: AppInfoPresentable
 	let update: AppUpdate
 	
 	private var _downloadID: String {
@@ -144,7 +101,7 @@ private struct UpdateCellView: View {
 	}
 	
 	private var _subtitle: String {
-		let localVersion = update.localVersion ?? app.version ?? .localized("Unknown")
+		let localVersion = update.localVersion ?? .localized("Unknown")
 		return "\(localVersion) → \(update.remoteVersion)"
 	}
 	
@@ -152,7 +109,7 @@ private struct UpdateCellView: View {
 		let isRegular = horizontalSizeClass != .compact
 		
 		HStack(spacing: 18) {
-			FRAppIconView(app: app, size: 57)
+			UpdateAppIconView(url: update.iconURL)
 			
 			NBTitleWithSubtitleView(
 				title: update.appName,
@@ -197,5 +154,29 @@ private struct UpdateCellView: View {
 			id: _downloadID,
 			sourceProvenance: update.sourceProvenance
 		)
+	}
+}
+
+private struct UpdateAppIconView: View {
+	let url: URL?
+	
+	var body: some View {
+		AsyncImage(url: url) { phase in
+			switch phase {
+			case .success(let image):
+				image
+					.resizable()
+					.scaledToFill()
+			default:
+				Image(systemName: "app.fill")
+					.resizable()
+					.scaledToFit()
+					.padding(12)
+					.foregroundStyle(.secondary)
+			}
+		}
+		.frame(width: 57, height: 57)
+		.background(Color(uiColor: .tertiarySystemFill))
+		.clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
 	}
 }

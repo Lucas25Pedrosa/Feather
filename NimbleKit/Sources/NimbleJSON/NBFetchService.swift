@@ -33,6 +33,7 @@ public class NBFetchService {
 extension NBFetchService {
 	public func fetch<T: Decodable>(
 		from urlString: String,
+		forceReload: Bool = false,
 		completion: @escaping (Result<T, Error>) -> Void
 	) {
 		guard let url = URL(string: urlString) else {
@@ -40,15 +41,26 @@ extension NBFetchService {
 			return
 		}
 		
-		fetch(from: url, completion: completion)
+		fetch(from: url, forceReload: forceReload, completion: completion)
 	}
 	
 	public func fetch<T: Decodable>(
 		from url: URL,
+		forceReload: Bool = false,
 		completion: @escaping (Result<T, Error>) -> Void
 	) {
 		DispatchQueue.global(qos: .userInitiated).async {
-			let task = URLSession.shared.dataTask(with: url) { data, response, error in
+			var request = URLRequest(
+				url: url,
+				cachePolicy: forceReload ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy
+			)
+			
+			if forceReload {
+				request.setValue("no-cache, no-store, max-age=0", forHTTPHeaderField: "Cache-Control")
+				request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+			}
+			
+			let task = URLSession.shared.dataTask(with: request) { data, response, error in
 				if let error = error {
 					completion(.failure(NBFetchServiceError.networkError(error)))
 					return

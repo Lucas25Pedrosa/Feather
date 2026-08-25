@@ -51,26 +51,44 @@ final class UpdateManager: ObservableObject {
 			return nil
 		}
 		
+		var candidate: AppUpdate?
+		
 		if
 			let metadata = Storage.shared.sourceMetadata(for: app),
 			let sourceURL = metadata.sourceRepositoryURL,
 			let sourceAppIdentifier = metadata.sourceAppIdentifier
 		{
-			if let exact = updates.values.first(where: {
+			candidate = updates.values.first(where: {
 				$0.localBundleIdentifier == localBundleIdentifier
 					&& $0.sourceProvenance.sourceAppIdentifier == sourceAppIdentifier
 					&& _matchesStoredRepository(
 						storedSourceURL: $0.sourceURL,
 						sourceURL: sourceURL
 					)
-			}) {
-				return exact
+			})
+		}
+		
+		if candidate == nil {
+			candidate = updates.values.first {
+				$0.localBundleIdentifier == localBundleIdentifier
 			}
 		}
 		
-		return updates.values.first {
-			$0.localBundleIdentifier == localBundleIdentifier
+		guard let candidate else { return nil }
+		
+		// A freshly downloaded update is already the remote version. In that case
+		// Library should offer Sign/Install instead of downloading the same IPA again.
+		if let appVersion = app.version, !appVersion.isEmpty {
+			let comparison = appVersion.compare(
+				candidate.remoteVersion,
+				options: [.numeric, .caseInsensitive]
+			)
+			if comparison != .orderedAscending {
+				return nil
+			}
 		}
+		
+		return candidate
 	}
 	
 	func checkForUpdates(
@@ -116,7 +134,7 @@ final class UpdateManager: ObservableObject {
 	
 	private func _fetchRepository(from url: URL) async -> ASRepository? {
 		await withCheckedContinuation { continuation in
-			_dataService.fetch(from: url) { (result: RepositoryDataHandler) in
+			_dataService.fetch(from: url, forceReload: true) { (result: RepositoryDataHandler) in
 				switch result {
 				case .success(let repository):
 					continuation.resume(returning: repository)

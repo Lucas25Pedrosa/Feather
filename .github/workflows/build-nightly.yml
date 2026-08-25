@@ -1,0 +1,55 @@
+name: Build Feather Nightly
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/updates-tab
+
+jobs:
+  build:
+    runs-on: macos-15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Select Xcode 26.2
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26.2'
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Build Feather NIGHTLY
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Feather.xcodeproj \
+            -scheme Feather \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            SWIFT_ACTIVE_COMPILATION_CONDITIONS='$(inherited) NIGHTLY' \
+            CODE_SIGNING_ALLOWED=NO \
+            build
+
+      - name: Package IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP_PATH="build/Build/Products/Release-iphoneos/Feather.app"
+          test -d "$APP_PATH"
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          zip -qry Feather-NIGHTLY.ipa Payload
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Feather-NIGHTLY
+          path: Feather-NIGHTLY.ipa

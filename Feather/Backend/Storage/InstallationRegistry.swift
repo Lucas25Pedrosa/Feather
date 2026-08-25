@@ -142,8 +142,10 @@ final class InstallationRegistry {
 	
 	private func _normalizedSourceURL(_ url: URL) -> String {
 		var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-		components?.scheme = components?.scheme?.lowercased()
-		components?.host = components?.host?.lowercased()
+		let scheme = components?.scheme?.lowercased()
+		let host = components?.host?.lowercased()
+		components?.scheme = scheme
+		components?.host = host
 		components?.fragment = nil
 		
 		let normalized = components?.url ?? url

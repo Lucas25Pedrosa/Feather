@@ -130,6 +130,16 @@ final class AppFileHandler: NSObject, @unchecked Sendable {
 				provenance: sourceProvenance
 			)
 		}
+		
+		if _download?.id.hasPrefix("FeatherManualDownload_Update_") == true {
+			await MainActor.run {
+				NotificationCenter.default.post(
+					name: Notification.Name("Feather.updateImported"),
+					object: nil,
+					userInfo: ["uuid": _uuid]
+				)
+			}
+		}
 	}
 	
 	private func _directory() async throws -> URL {

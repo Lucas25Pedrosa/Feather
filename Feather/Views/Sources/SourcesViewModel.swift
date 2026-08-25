@@ -50,7 +50,7 @@ final class SourcesViewModel: ObservableObject {
 						}
 						
 						return await withCheckedContinuation { continuation in
-							self._dataService.fetch(from: url) { (result: RepositoryDataHandler) in
+							self._dataService.fetch(from: url, forceReload: refresh) { (result: RepositoryDataHandler) in
 								switch result {
 								case .success(let repo):
 									continuation.resume(returning: (source, repo))

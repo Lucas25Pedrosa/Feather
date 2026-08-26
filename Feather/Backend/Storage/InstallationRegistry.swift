@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import Combine
 
 struct InstalledSourceAppRecord: Codable, Equatable, Identifiable {
 	let id: String
@@ -21,6 +22,10 @@ struct InstalledSourceAppRecord: Codable, Equatable, Identifiable {
 	var installedAt: Date
 	var updatedAt: Date
 	
+	// Optional so registries created by older Feather builds remain decodable.
+	var ignoredRemoteVersion: String? = nil
+	var updatesDisabled: Bool? = nil
+	
 	var sourceProvenance: SourceAppProvenance {
 		SourceAppProvenance(
 			sourceRepositoryURL: sourceRepositoryURL,
@@ -33,14 +38,18 @@ struct InstalledSourceAppRecord: Codable, Equatable, Identifiable {
 			sourceAppDownloadURL: sourceAppDownloadURL
 		)
 	}
+	
+	var hasHiddenUpdates: Bool {
+		updatesDisabled == true || ignoredRemoteVersion != nil
+	}
 }
 
-final class InstallationRegistry {
+final class InstallationRegistry: ObservableObject {
 	static let shared = InstallationRegistry()
 	
 	private let _fileManager = FileManager.default
 	private let _fileURL: URL
-	private(set) var records: [InstalledSourceAppRecord] = []
+	@Published private(set) var records: [InstalledSourceAppRecord] = []
 	
 	private init() {
 		let applicationSupport = _fileManager.urls(
@@ -61,6 +70,16 @@ final class InstallationRegistry {
 		)
 		
 		_load()
+	}
+	
+	var hiddenRecords: [InstalledSourceAppRecord] {
+		records
+			.filter(\.hasHiddenUpdates)
+			.sorted {
+				($0.appName ?? $0.localBundleIdentifier)
+					.localizedCaseInsensitiveCompare($1.appName ?? $1.localBundleIdentifier)
+					== .orderedAscending
+			}
 	}
 	
 	@discardableResult
@@ -125,6 +144,16 @@ final class InstallationRegistry {
 			records[index].sourceAppDownloadURL = metadata?.sourceAppDownloadURL ?? fallbackProvenance?.sourceAppDownloadURL
 			records[index].installedAt = now
 			records[index].updatedAt = now
+			
+			if let ignoredVersion = records[index].ignoredRemoteVersion {
+				let comparison = installedVersion.compare(
+					ignoredVersion,
+					options: [.numeric, .caseInsensitive]
+				)
+				if comparison != .orderedAscending {
+					records[index].ignoredRemoteVersion = nil
+				}
+			}
 		} else {
 			records.append(
 				InstalledSourceAppRecord(
@@ -146,6 +175,58 @@ final class InstallationRegistry {
 		
 		_save()
 		return true
+	}
+	
+	@discardableResult
+	func ignoreUpdate(recordID: String, remoteVersion: String) -> Bool {
+		guard let index = records.firstIndex(where: { $0.id == recordID }) else {
+			return false
+		}
+		
+		records[index].ignoredRemoteVersion = remoteVersion
+		records[index].updatedAt = Date()
+		_save()
+		return true
+	}
+	
+	@discardableResult
+	func disableUpdates(recordID: String) -> Bool {
+		guard let index = records.firstIndex(where: { $0.id == recordID }) else {
+			return false
+		}
+		
+		records[index].updatesDisabled = true
+		records[index].ignoredRemoteVersion = nil
+		records[index].updatedAt = Date()
+		_save()
+		return true
+	}
+	
+	@discardableResult
+	func showUpdates(recordID: String) -> Bool {
+		guard let index = records.firstIndex(where: { $0.id == recordID }) else {
+			return false
+		}
+		
+		records[index].updatesDisabled = nil
+		records[index].ignoredRemoteVersion = nil
+		records[index].updatedAt = Date()
+		_save()
+		return true
+	}
+	
+	func clearStaleIgnoredVersion(recordID: String, currentRemoteVersion: String) {
+		guard
+			let index = records.firstIndex(where: { $0.id == recordID }),
+			let ignoredVersion = records[index].ignoredRemoteVersion,
+			ignoredVersion != currentRemoteVersion
+		else {
+			return
+		}
+		
+		records[index].ignoredRemoteVersion = nil
+		records[index].updatedAt = Date()
+		_save()
 	}
 	
 	func reset() {

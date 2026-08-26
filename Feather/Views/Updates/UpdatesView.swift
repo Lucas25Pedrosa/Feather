@@ -84,22 +84,11 @@ struct UpdatesView: View {
 			.toolbar {
 				ToolbarItem(placement: .topBarTrailing) {
 					Menu {
-						Button(.localized("Check for Updates"), systemImage: "arrow.triangle.2.circlepath") {
-							Task {
-								await _checkForUpdates()
-							}
-						}
-						.disabled(updateManager.isChecking)
-						
 						Button(.localized("Hidden Updates"), systemImage: "eye.slash") {
 							_isHiddenUpdatesPresenting = true
 						}
 					} label: {
-						if updateManager.isChecking {
-							ProgressView()
-						} else {
-							Image(systemName: "ellipsis.circle")
-						}
+						Image(systemName: "ellipsis.circle")
 					}
 					.accessibilityLabel(.localized("Update Options"))
 				}
@@ -278,7 +267,7 @@ private struct UpdateCellView: View {
 		.background(
 			isRegular
 				? RoundedRectangle(cornerRadius: 18, style: .continuous)
-					.fill(Color(.quaternarySystemFill))
+					.fill(Color(uiColor: .quaternarySystemFill))
 				: nil
 		)
 	}

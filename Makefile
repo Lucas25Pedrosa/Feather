@@ -26,6 +26,7 @@ deps:
 
 $(PLATFORMS): deps
 	rm -rf _build
+	python3 .github/scripts/merge_ptbr_xcstrings.py
 
 	@if [ "$@" = "iphoneos" ]; then \
 		DEST="generic/platform=iOS"; \

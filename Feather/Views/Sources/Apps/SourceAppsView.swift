@@ -186,6 +186,7 @@ extension SourceAppsView {
 			ForEach(SortOption.allCases, id: \.displayName) { opt in
 				_sortButton(for: opt)
 			}
+		}
 	}
 	
 	private func _sortButton(for option: SortOption) -> some View {

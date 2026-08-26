@@ -217,7 +217,7 @@ struct BackupView: View {
 			Text("Conectado")
 				.fontWeight(.semibold)
 				.foregroundStyle(.green)
-		case .failed:
+		case .failed(_):
 			Text(.localized("Not Connected"))
 				.foregroundStyle(.red)
 		case .idle:
@@ -235,7 +235,9 @@ struct BackupView: View {
 	
 	private func _maskedKey(_ key: String) -> String {
 		guard key.hasPrefix("FTHR-") else { return "••••••••••••" }
-		let masked = key.dropFirst(5).map { $0 == "-" ? "-" : "•" }
+		let masked: [Character] = key.dropFirst(5).map { character in
+			character == "-" ? Character("-") : Character("•")
+		}
 		return "FTHR-" + String(masked)
 	}
 	
@@ -276,6 +278,7 @@ struct BackupView: View {
 					do {
 						try await backupManager.connect(serverURL: _serverURL)
 						_serverURL = backupManager.serverURLString
+						backupManager.setEnabled(true)
 						try await backupManager.backupNow()
 						_alertMessage = .localized("A new recovery key was generated, copied, connected, and backed up. Save the key somewhere safe.")
 					} catch {
@@ -305,6 +308,7 @@ struct BackupView: View {
 		Task {
 			do {
 				let count = try await backupManager.restoreCurrentBackup()
+				backupManager.setEnabled(true)
 				_alertMessage = .localized("Backup restored. %d update history records were recovered.", arguments: count)
 			} catch {
 				_alertMessage = error.localizedDescription

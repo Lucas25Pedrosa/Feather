@@ -58,8 +58,12 @@ struct InstallPreviewView: View {
 			SafariRepresentableView(url: installer.pageEndpoint).ignoresSafeArea()
 		}
 		.onReceive(viewModel.$status) { newStatus in
-			if case .completed = newStatus, !_didRecordInstallation {
-				_didRecordInstallation = InstallationRegistry.shared.recordInstallation(of: app)
+			if case .completed(.success(_)) = newStatus, !_didRecordInstallation {
+				let didRecord = InstallationRegistry.shared.recordInstallation(of: app)
+				_didRecordInstallation = didRecord
+				if didRecord {
+					UpdateManager.shared.reconcileInstallation(of: app)
+				}
 			}
 			
 			if _installationMethod == 0 {

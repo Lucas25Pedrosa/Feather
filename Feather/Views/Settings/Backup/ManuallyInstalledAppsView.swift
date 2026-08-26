@@ -86,7 +86,7 @@ private struct ManualInstalledRecordEditView: View {
 	
 	init(record: InstalledSourceAppRecord) {
 		self.record = record
-		_version = State(initialValue: record.installedVersion)
+		__version = State(initialValue: record.installedVersion)
 	}
 	
 	var body: some View {

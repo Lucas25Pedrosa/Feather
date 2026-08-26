@@ -5,6 +5,7 @@
 //  Cloud backup settings for update history.
 //
 
+import NimbleViews
 import SwiftUI
 import UIKit
 
@@ -160,7 +161,8 @@ struct BackupView: View {
 	
 	private func _maskedKey(_ key: String) -> String {
 		guard key.hasPrefix("FTHR-") else { return "••••••••••••" }
-		return "FTHR-" + key.dropFirst(5).map { $0 == "-" ? "-" : "•" }
+		let masked = key.dropFirst(5).map { $0 == "-" ? "-" : "•" }
+		return "FTHR-" + String(masked)
 	}
 	
 	private func _doUseExistingKey() {

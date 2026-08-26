@@ -9,9 +9,17 @@ import SwiftUI
 import CoreData
 import NimbleViews
 
+private struct UpdateSigningIdentity {
+	let sourceRepositoryURL: URL
+	let sourceAppIdentifier: String
+	let sourceAppVersion: String?
+}
+
 struct UpdatesView: View {
 	@StateObject private var updateManager = UpdateManager.shared
 	@State private var _selectedSigningAppPresenting: AnyApp?
+	@State private var _updateSigningIdentity: UpdateSigningIdentity?
+	@State private var _signedUUIDsBeforeSigning: Set<String> = []
 	
 	@FetchRequest(
 		entity: AltSource.entity(),
@@ -24,6 +32,12 @@ struct UpdatesView: View {
 		sortDescriptors: [NSSortDescriptor(keyPath: \Imported.date, ascending: false)],
 		animation: .snappy
 	) private var _importedApps: FetchedResults<Imported>
+	
+	@FetchRequest(
+		entity: Signed.entity(),
+		sortDescriptors: [NSSortDescriptor(keyPath: \Signed.date, ascending: false)],
+		animation: .snappy
+	) private var _signedApps: FetchedResults<Signed>
 	
 	private var _updateEntries: [AppUpdate] {
 		updateManager.availableUpdates
@@ -85,6 +99,9 @@ struct UpdatesView: View {
 			}
 			.fullScreenCover(item: $_selectedSigningAppPresenting) { app in
 				SigningView(app: app.base)
+					.onDisappear {
+						_handleUpdateSigningDismissal()
+					}
 			}
 			.onReceive(NotificationCenter.default.publisher(for: Notification.Name("Feather.updateImported"))) { notification in
 				guard let uuid = notification.userInfo?["uuid"] as? String else { return }
@@ -106,12 +123,72 @@ struct UpdatesView: View {
 		Task { @MainActor in
 			for _ in 0..<8 {
 				if let imported = _importedApps.first(where: { $0.uuid == uuid }) {
+					if
+						let metadata = Storage.shared.sourceMetadata(for: imported),
+						let sourceRepositoryURL = metadata.sourceRepositoryURL,
+						let sourceAppIdentifier = metadata.sourceAppIdentifier
+					{
+						_updateSigningIdentity = UpdateSigningIdentity(
+							sourceRepositoryURL: sourceRepositoryURL,
+							sourceAppIdentifier: sourceAppIdentifier,
+							sourceAppVersion: metadata.sourceAppVersion
+						)
+					}
+					
+					_signedUUIDsBeforeSigning = Set(_signedApps.compactMap { $0.uuid })
 					_selectedSigningAppPresenting = AnyApp(base: imported)
 					return
 				}
 				try? await Task.sleep(nanoseconds: 100_000_000)
 			}
 		}
+	}
+	
+	private func _handleUpdateSigningDismissal() {
+		guard let identity = _updateSigningIdentity else {
+			_resetUpdateSigningState()
+			return
+		}
+		
+		let previousSignedUUIDs = _signedUUIDsBeforeSigning
+		Task { @MainActor in
+			for _ in 0..<8 {
+				let didSignUpdate = _signedApps.contains { signed in
+					guard
+						let uuid = signed.uuid,
+						!previousSignedUUIDs.contains(uuid),
+						let metadata = Storage.shared.sourceMetadata(for: signed),
+						metadata.sourceRepositoryURL == identity.sourceRepositoryURL,
+						metadata.sourceAppIdentifier == identity.sourceAppIdentifier
+					else {
+						return false
+					}
+					
+					if let expectedVersion = identity.sourceAppVersion {
+						return metadata.sourceAppVersion == expectedVersion
+					}
+					return true
+				}
+				
+				if didSignUpdate {
+					NotificationCenter.default.post(
+						name: Notification.Name("Feather.selectTab"),
+						object: TabEnum.library.rawValue
+					)
+					_resetUpdateSigningState()
+					return
+				}
+				
+				try? await Task.sleep(nanoseconds: 100_000_000)
+			}
+			
+			_resetUpdateSigningState()
+		}
+	}
+	
+	private func _resetUpdateSigningState() {
+		_updateSigningIdentity = nil
+		_signedUUIDsBeforeSigning.removeAll()
 	}
 }
 

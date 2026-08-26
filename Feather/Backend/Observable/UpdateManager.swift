@@ -20,6 +20,7 @@ struct AppUpdate: Identifiable, Equatable {
 	let iconURL: URL?
 	let downloadURL: URL
 	let sourceURL: URL
+	let changelog: String?
 	let sourceProvenance: SourceAppProvenance
 }
 
@@ -285,6 +286,9 @@ final class UpdateManager: ObservableObject {
 					continue
 				}
 				
+				let changelog = remoteApp.currentAppVersion?.localizedDescription
+					?? remoteApp.versionDescription
+				
 				foundUpdates[installedApp.id] = AppUpdate(
 					id: installedApp.id,
 					localUUID: installedApp.id,
@@ -296,6 +300,7 @@ final class UpdateManager: ObservableObject {
 					iconURL: remoteApp.iconURL,
 					downloadURL: downloadURL,
 					sourceURL: sourceURL,
+					changelog: changelog,
 					sourceProvenance: provenance
 				)
 				break

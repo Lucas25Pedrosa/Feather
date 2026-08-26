@@ -104,12 +104,17 @@ final class BackupManager: ObservableObject {
 	private var _automaticBackupTask: Task<Void, Never>?
 	
 	private init() {
-		recoveryKey = Self._loadRecoveryKey()
-		serverURLString = UserDefaults.standard.string(forKey: Self._serverURLKey) ?? ""
-		isEnabled = UserDefaults.standard.bool(forKey: Self._enabledKey)
-			&& recoveryKey != nil
-			&& !serverURLString.isEmpty
-		lastBackupDate = UserDefaults.standard.object(forKey: Self._lastBackupKey) as? Date
+		let storedRecoveryKey = Self._loadRecoveryKey()
+		let storedServerURL = UserDefaults.standard.string(forKey: Self._serverURLKey) ?? ""
+		let storedEnabled = UserDefaults.standard.bool(forKey: Self._enabledKey)
+		let storedLastBackupDate = UserDefaults.standard.object(forKey: Self._lastBackupKey) as? Date
+		
+		recoveryKey = storedRecoveryKey
+		serverURLString = storedServerURL
+		isEnabled = storedEnabled
+			&& storedRecoveryKey != nil
+			&& !storedServerURL.isEmpty
+		lastBackupDate = storedLastBackupDate
 		
 		NotificationCenter.default.addObserver(
 			forName: .featherInstallationRegistryChanged,

@@ -117,18 +117,8 @@ struct UpdatesView: View {
 	}
 	
 	private func _checkForUpdates() async {
-		let sources = Array(_sources)
-		await UpdateDebugProbe.shared.capture(
-			sourceURLs: sources.compactMap { $0.sourceURL }
-		)
-		
 		await updateManager.checkForUpdates(
-			sources: sources
-		)
-		
-		await UpdateDebugProbe.shared.recordFeatherState(
-			installed: InstallationRegistry.shared.records,
-			updates: updateManager.availableUpdates
+			sources: Array(_sources)
 		)
 	}
 	

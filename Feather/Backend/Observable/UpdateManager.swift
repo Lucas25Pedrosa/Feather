@@ -44,37 +44,7 @@ final class UpdateManager: ObservableObject {
 	}
 	
 	func update(for app: AppInfoPresentable) -> AppUpdate? {
-		guard
-			let localBundleIdentifier = app.identifier,
-			!localBundleIdentifier.isEmpty
-		else {
-			return nil
-		}
-		
-		var candidate: AppUpdate?
-		
-		if
-			let metadata = Storage.shared.sourceMetadata(for: app),
-			let sourceURL = metadata.sourceRepositoryURL,
-			let sourceAppIdentifier = metadata.sourceAppIdentifier
-		{
-			candidate = updates.values.first(where: {
-				$0.localBundleIdentifier == localBundleIdentifier
-					&& $0.sourceProvenance.sourceAppIdentifier == sourceAppIdentifier
-					&& _matchesStoredRepository(
-						storedSourceURL: $0.sourceURL,
-						sourceURL: sourceURL
-					)
-			})
-		}
-		
-		if candidate == nil {
-			candidate = updates.values.first {
-				$0.localBundleIdentifier == localBundleIdentifier
-			}
-		}
-		
-		guard let candidate else { return nil }
+		guard let candidate = _candidateUpdate(for: app) else { return nil }
 		
 		// A freshly downloaded update is already the remote version. In that case
 		// Library should offer Sign/Install instead of downloading the same IPA again.
@@ -91,29 +61,42 @@ final class UpdateManager: ObservableObject {
 		return candidate
 	}
 	
+	func provenanceForInstallation(of app: AppInfoPresentable) -> SourceAppProvenance? {
+		_candidateUpdate(for: app)?.sourceProvenance
+	}
+	
 	func reconcileInstallation(of app: AppInfoPresentable) {
 		guard
 			let localBundleIdentifier = app.identifier,
-			!localBundleIdentifier.isEmpty,
-			let metadata = Storage.shared.sourceMetadata(for: app),
-			let sourceURL = metadata.sourceRepositoryURL,
-			let sourceAppIdentifier = metadata.sourceAppIdentifier,
-			let installedVersion = metadata.sourceAppVersion ?? app.version,
-			!installedVersion.isEmpty
+			!localBundleIdentifier.isEmpty
 		else {
 			return
 		}
 		
+		let metadata = Storage.shared.sourceMetadata(for: app)
+		let sourceURL = metadata?.sourceRepositoryURL
+		let sourceAppIdentifier = metadata?.sourceAppIdentifier
+		
+		let installedVersion: String
+		if let appVersion = app.version, !appVersion.isEmpty {
+			installedVersion = appVersion
+		} else if let metadataVersion = metadata?.sourceAppVersion, !metadataVersion.isEmpty {
+			installedVersion = metadataVersion
+		} else {
+			return
+		}
+		
 		updates = updates.filter { _, update in
-			let isSameApp = update.localBundleIdentifier == localBundleIdentifier
-				&& update.sourceProvenance.sourceAppIdentifier == sourceAppIdentifier
-				&& _matchesStoredRepository(
-					storedSourceURL: update.sourceURL,
-					sourceURL: sourceURL
-				)
+			let sameBundle = update.localBundleIdentifier == localBundleIdentifier
+			guard sameBundle else { return true }
 			
-			guard isSameApp else {
-				return true
+			if let sourceURL, let sourceAppIdentifier {
+				let isSameApp = update.sourceProvenance.sourceAppIdentifier == sourceAppIdentifier
+					&& _matchesStoredRepository(
+						storedSourceURL: update.sourceURL,
+						sourceURL: sourceURL
+					)
+				guard isSameApp else { return true }
 			}
 			
 			let comparison = installedVersion.compare(
@@ -145,6 +128,35 @@ final class UpdateManager: ObservableObject {
 			repositories: repositories,
 			installedApps: InstallationRegistry.shared.records
 		)
+	}
+	
+	private func _candidateUpdate(for app: AppInfoPresentable) -> AppUpdate? {
+		guard
+			let localBundleIdentifier = app.identifier,
+			!localBundleIdentifier.isEmpty
+		else {
+			return nil
+		}
+		
+		if
+			let metadata = Storage.shared.sourceMetadata(for: app),
+			let sourceURL = metadata.sourceRepositoryURL,
+			let sourceAppIdentifier = metadata.sourceAppIdentifier,
+			let candidate = updates.values.first(where: {
+				$0.localBundleIdentifier == localBundleIdentifier
+					&& $0.sourceProvenance.sourceAppIdentifier == sourceAppIdentifier
+					&& _matchesStoredRepository(
+						storedSourceURL: $0.sourceURL,
+						sourceURL: sourceURL
+					)
+			})
+		{
+			return candidate
+		}
+		
+		return updates.values.first {
+			$0.localBundleIdentifier == localBundleIdentifier
+		}
 	}
 	
 	private func _fetchRepositories(from sources: [AltSource]) async -> [(AltSource, ASRepository)] {
@@ -183,8 +195,9 @@ final class UpdateManager: ObservableObject {
 		installedApps: [InstalledSourceAppRecord]
 	) -> [String: AppUpdate] {
 		var foundUpdates: [String: AppUpdate] = [:]
+		let canonicalInstalledApps = _canonicalInstalledApps(installedApps)
 		
-		for installedApp in installedApps {
+		for installedApp in canonicalInstalledApps {
 			for (source, repository) in repositories {
 				guard let sourceURL = source.sourceURL else {
 					continue
@@ -210,7 +223,11 @@ final class UpdateManager: ObservableObject {
 					continue
 				}
 				
-				guard remoteVersion != installedApp.installedVersion else {
+				let comparison = remoteVersion.compare(
+					installedApp.installedVersion,
+					options: [.numeric, .caseInsensitive]
+				)
+				guard comparison == .orderedDescending else {
 					continue
 				}
 				
@@ -244,6 +261,38 @@ final class UpdateManager: ObservableObject {
 		}
 		
 		return foundUpdates
+	}
+	
+	private func _canonicalInstalledApps(
+		_ installedApps: [InstalledSourceAppRecord]
+	) -> [InstalledSourceAppRecord] {
+		var canonical: [String: InstalledSourceAppRecord] = [:]
+		
+		for record in installedApps {
+			let key = [
+				_normalizedSourceURL(record.sourceRepositoryURL),
+				record.sourceAppIdentifier,
+				record.localBundleIdentifier
+			].joined(separator: "|")
+			
+			guard let current = canonical[key] else {
+				canonical[key] = record
+				continue
+			}
+			
+			let versionComparison = record.installedVersion.compare(
+				current.installedVersion,
+				options: [.numeric, .caseInsensitive]
+			)
+			
+			if versionComparison == .orderedDescending
+				|| (versionComparison == .orderedSame && record.updatedAt > current.updatedAt)
+			{
+				canonical[key] = record
+			}
+		}
+		
+		return Array(canonical.values)
 	}
 	
 	private func _matchesStoredRepository(

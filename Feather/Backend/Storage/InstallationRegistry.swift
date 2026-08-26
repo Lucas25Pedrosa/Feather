@@ -64,40 +64,65 @@ final class InstallationRegistry {
 	}
 	
 	@discardableResult
-	func recordInstallation(of app: AppInfoPresentable) -> Bool {
+	func recordInstallation(
+		of app: AppInfoPresentable,
+		fallbackProvenance: SourceAppProvenance? = nil
+	) -> Bool {
 		guard
-			let appUUID = app.uuid,
 			let localBundleIdentifier = app.identifier,
-			!localBundleIdentifier.isEmpty,
-			let metadata = Storage.shared.sourceMetadata(for: appUUID),
-			let sourceRepositoryURL = metadata.sourceRepositoryURL,
-			let sourceAppIdentifier = metadata.sourceAppIdentifier
+			!localBundleIdentifier.isEmpty
 		else {
 			return false
 		}
 		
+		let metadata = app.uuid.flatMap { Storage.shared.sourceMetadata(for: $0) }
+		
 		guard
-			let installedVersion = metadata.sourceAppVersion ?? app.version,
-			!installedVersion.isEmpty
+			let sourceRepositoryURL = metadata?.sourceRepositoryURL ?? fallbackProvenance?.sourceRepositoryURL,
+			let sourceAppIdentifier = metadata?.sourceAppIdentifier ?? fallbackProvenance?.sourceAppIdentifier
 		else {
+			return false
+		}
+		
+		let installedVersion: String
+		if let appVersion = app.version, !appVersion.isEmpty {
+			installedVersion = appVersion
+		} else if let metadataVersion = metadata?.sourceAppVersion, !metadataVersion.isEmpty {
+			installedVersion = metadataVersion
+		} else if let fallbackVersion = fallbackProvenance?.sourceAppVersion, !fallbackVersion.isEmpty {
+			installedVersion = fallbackVersion
+		} else {
 			return false
 		}
 		
 		let now = Date()
-		if let index = records.firstIndex(where: {
-			_matchesIdentity(
-				$0,
-				sourceRepositoryURL: sourceRepositoryURL,
-				sourceAppIdentifier: sourceAppIdentifier,
-				localBundleIdentifier: localBundleIdentifier
-			)
-		}) {
+		let matchingRecordIDs = records
+			.filter {
+				_matchesIdentity(
+					$0,
+					sourceRepositoryURL: sourceRepositoryURL,
+					sourceAppIdentifier: sourceAppIdentifier,
+					localBundleIdentifier: localBundleIdentifier
+				)
+			}
+			.sorted { $0.updatedAt > $1.updatedAt }
+			.map(\.id)
+		
+		if let canonicalID = matchingRecordIDs.first {
+			records.removeAll { record in
+				matchingRecordIDs.dropFirst().contains(record.id)
+			}
+			
+			guard let index = records.firstIndex(where: { $0.id == canonicalID }) else {
+				return false
+			}
+			
 			records[index].installedVersion = installedVersion
-			records[index].appName = metadata.sourceAppName ?? app.name
-			records[index].sourceRepositoryIdentifier = metadata.sourceRepositoryIdentifier
-			records[index].sourceRepositoryName = metadata.sourceRepositoryName
-			records[index].sourceAppVersionDate = metadata.sourceAppVersionDate
-			records[index].sourceAppDownloadURL = metadata.sourceAppDownloadURL
+			records[index].appName = metadata?.sourceAppName ?? fallbackProvenance?.sourceAppName ?? app.name
+			records[index].sourceRepositoryIdentifier = metadata?.sourceRepositoryIdentifier ?? fallbackProvenance?.sourceRepositoryIdentifier
+			records[index].sourceRepositoryName = metadata?.sourceRepositoryName ?? fallbackProvenance?.sourceRepositoryName
+			records[index].sourceAppVersionDate = metadata?.sourceAppVersionDate ?? fallbackProvenance?.sourceAppVersionDate
+			records[index].sourceAppDownloadURL = metadata?.sourceAppDownloadURL ?? fallbackProvenance?.sourceAppDownloadURL
 			records[index].installedAt = now
 			records[index].updatedAt = now
 		} else {
@@ -106,13 +131,13 @@ final class InstallationRegistry {
 					id: UUID().uuidString,
 					localBundleIdentifier: localBundleIdentifier,
 					installedVersion: installedVersion,
-					appName: metadata.sourceAppName ?? app.name,
+					appName: metadata?.sourceAppName ?? fallbackProvenance?.sourceAppName ?? app.name,
 					sourceRepositoryURL: sourceRepositoryURL,
-					sourceRepositoryIdentifier: metadata.sourceRepositoryIdentifier,
-					sourceRepositoryName: metadata.sourceRepositoryName,
+					sourceRepositoryIdentifier: metadata?.sourceRepositoryIdentifier ?? fallbackProvenance?.sourceRepositoryIdentifier,
+					sourceRepositoryName: metadata?.sourceRepositoryName ?? fallbackProvenance?.sourceRepositoryName,
 					sourceAppIdentifier: sourceAppIdentifier,
-					sourceAppVersionDate: metadata.sourceAppVersionDate,
-					sourceAppDownloadURL: metadata.sourceAppDownloadURL,
+					sourceAppVersionDate: metadata?.sourceAppVersionDate ?? fallbackProvenance?.sourceAppVersionDate,
+					sourceAppDownloadURL: metadata?.sourceAppDownloadURL ?? fallbackProvenance?.sourceAppDownloadURL,
 					installedAt: now,
 					updatedAt: now
 				)

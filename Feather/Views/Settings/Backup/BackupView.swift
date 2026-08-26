@@ -11,6 +11,7 @@ import UIKit
 
 struct BackupView: View {
 	@StateObject private var backupManager = BackupManager.shared
+	@State private var _serverURL = ""
 	@State private var _enteredRecoveryKey = ""
 	@State private var _showRecoveryKey = false
 	@State private var _alertMessage: String?
@@ -21,25 +22,36 @@ struct BackupView: View {
 		NBNavigationView(.localized("Backup & Restore")) {
 			Form {
 				Section {
-					Toggle(
-						.localized("Cloud Backup"),
-						isOn: Binding(
-							get: { backupManager.isEnabled },
-							set: { backupManager.setEnabled($0) }
-						)
-					)
-					.disabled(backupManager.recoveryKey == nil)
+					TextField(.localized("Server URL"), text: $_serverURL)
+						.keyboardType(.URL)
+						.textInputAutocapitalization(.never)
+						.autocorrectionDisabled()
+						.onSubmit {
+							_doConnect()
+						}
 					
 					HStack {
-						Text(.localized("Last Backup"))
+						Text(.localized("Status"))
 						Spacer()
-						Text(_lastBackupText)
-							.foregroundStyle(.secondary)
+						_connectionStatus
 					}
+					
+					Button(.localized("Connect"), systemImage: "network") {
+						_doConnect()
+					}
+					.disabled(
+						backupManager.recoveryKey == nil
+							|| _serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+							|| backupManager.connectionState == .checking
+					)
 				} header: {
-					Text(.localized("Cloud Backup"))
+					Text(.localized("Backup Server"))
 				} footer: {
-					Text(.localized("Your update history is encrypted on this iPhone before it is uploaded. The recovery key is never sent to the backup service."))
+					if case .failed(let message) = backupManager.connectionState {
+						Text(message)
+					} else {
+						Text(.localized("Enter the address of a compatible Feather backup server. The server and recovery key are validated before backup is enabled."))
+					}
 				}
 				
 				Section {
@@ -84,7 +96,29 @@ struct BackupView: View {
 				} header: {
 					Text(.localized("Recovery Key"))
 				} footer: {
-					Text(.localized("Keep this key somewhere safe. After reinstalling Feather, enter the same key here and restore the backup."))
+					Text(.localized("Keep this key somewhere safe. After reinstalling Feather, enter the same server URL and recovery key, connect, and restore the backup."))
+				}
+				
+				Section {
+					Toggle(
+						.localized("Cloud Backup"),
+						isOn: Binding(
+							get: { backupManager.isEnabled },
+							set: { backupManager.setEnabled($0) }
+						)
+					)
+					.disabled(!backupManager.isConnected)
+					
+					HStack {
+						Text(.localized("Last Backup"))
+						Spacer()
+						Text(_lastBackupText)
+							.foregroundStyle(.secondary)
+					}
+				} header: {
+					Text(.localized("Cloud Backup"))
+				} footer: {
+					Text(.localized("Your update history is encrypted on this iPhone before it is uploaded. The recovery key is never sent to the backup service."))
 				}
 				
 				if backupManager.recoveryKey != nil {
@@ -92,12 +126,12 @@ struct BackupView: View {
 						Button(.localized("Back Up Now"), systemImage: "icloud.and.arrow.up") {
 							_doBackupNow()
 						}
-						.disabled(backupManager.isBusy || !backupManager.isEnabled)
+						.disabled(backupManager.isBusy || !backupManager.isEnabled || !backupManager.isConnected)
 						
 						Button(.localized("Restore Backup"), systemImage: "arrow.counterclockwise.icloud") {
 							_isRestoreConfirmationPresented = true
 						}
-						.disabled(backupManager.isBusy)
+						.disabled(backupManager.isBusy || !backupManager.isConnected)
 						
 						if backupManager.isBusy {
 							HStack {
@@ -113,6 +147,24 @@ struct BackupView: View {
 					}
 				}
 			}
+		}
+		.onAppear {
+			if _serverURL.isEmpty {
+				_serverURL = backupManager.serverURLString
+			}
+		}
+		.task {
+			guard
+				backupManager.recoveryKey != nil,
+				!backupManager.serverURLString.isEmpty
+			else {
+				return
+			}
+			
+			if _serverURL.isEmpty {
+				_serverURL = backupManager.serverURLString
+			}
+			await backupManager.refreshConnection()
 		}
 		.alert(
 			.localized("Cloud Backup"),
@@ -152,6 +204,28 @@ struct BackupView: View {
 		}
 	}
 	
+	@ViewBuilder
+	private var _connectionStatus: some View {
+		switch backupManager.connectionState {
+		case .checking:
+			HStack(spacing: 6) {
+				ProgressView()
+				Text(.localized("Connecting…"))
+					.foregroundStyle(.secondary)
+			}
+		case .connected:
+			Text("Conectado")
+				.fontWeight(.semibold)
+				.foregroundStyle(.green)
+		case .failed:
+			Text(.localized("Not Connected"))
+				.foregroundStyle(.red)
+		case .idle:
+			Text(.localized("Not Connected"))
+				.foregroundStyle(.secondary)
+		}
+	}
+	
 	private var _lastBackupText: String {
 		guard let date = backupManager.lastBackupDate else {
 			return .localized("Never")
@@ -165,11 +239,27 @@ struct BackupView: View {
 		return "FTHR-" + String(masked)
 	}
 	
+	private func _doConnect() {
+		Task {
+			do {
+				try await backupManager.connect(serverURL: _serverURL)
+				_serverURL = backupManager.serverURLString
+			} catch {
+				_alertMessage = error.localizedDescription
+			}
+		}
+	}
+	
 	private func _doUseExistingKey() {
 		do {
 			try backupManager.useRecoveryKey(_enteredRecoveryKey)
 			_enteredRecoveryKey = ""
-			_alertMessage = .localized("Recovery key saved. If this is a new Feather installation, restore your backup before making changes to the update history.")
+			
+			if !_serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+				_doConnect()
+			} else {
+				_alertMessage = .localized("Recovery key saved. Enter the backup server URL to connect.")
+			}
 		} catch {
 			_alertMessage = error.localizedDescription
 		}
@@ -180,10 +270,20 @@ struct BackupView: View {
 			let generated = try backupManager.generateRecoveryKey()
 			_showRecoveryKey = true
 			UIPasteboard.general.string = generated
-			_alertMessage = .localized("A new recovery key was generated and copied. Save it somewhere safe.")
 			
-			Task {
-				try? await backupManager.backupNow()
+			if !_serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+				Task {
+					do {
+						try await backupManager.connect(serverURL: _serverURL)
+						_serverURL = backupManager.serverURLString
+						try await backupManager.backupNow()
+						_alertMessage = .localized("A new recovery key was generated, copied, connected, and backed up. Save the key somewhere safe.")
+					} catch {
+						_alertMessage = error.localizedDescription
+					}
+				}
+			} else {
+				_alertMessage = .localized("A new recovery key was generated and copied. Save it somewhere safe, then enter the backup server URL to connect.")
 			}
 		} catch {
 			_alertMessage = error.localizedDescription

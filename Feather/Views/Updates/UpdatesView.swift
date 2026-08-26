@@ -199,6 +199,7 @@ private struct UpdateCellView: View {
 	@Environment(\.horizontalSizeClass) private var horizontalSizeClass
 	@ObservedObject private var downloadManager = DownloadManager.shared
 	@ObservedObject private var updateManager = UpdateManager.shared
+	@State private var _isChangelogExpanded = false
 	
 	let update: AppUpdate
 	
@@ -215,53 +216,77 @@ private struct UpdateCellView: View {
 		return "\(localVersion) → \(update.remoteVersion)"
 	}
 	
+	private var _changelog: String? {
+		guard let value = update.changelog?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+			return nil
+		}
+		return value
+	}
+	
 	var body: some View {
 		let isRegular = horizontalSizeClass != .compact
 		
-		HStack(spacing: 18) {
-			UpdateAppIconView(url: update.iconURL)
-			
-			NBTitleWithSubtitleView(
-				title: update.appName,
-				subtitle: _subtitle,
-				linelimit: 0
-			)
-			
-			Button {
-				_startUpdateDownload()
-			} label: {
-				Group {
-					if _isDownloading {
-						ProgressView()
-							.frame(minWidth: 48)
-					} else {
-						Text(.localized("Update"))
-							.lineLimit(1)
-							.font(.headline.bold())
-							.foregroundStyle(Color.accentColor)
-							.padding(.horizontal, 18)
-							.padding(.vertical, 6)
-							.background(Color(uiColor: .quaternarySystemFill))
-							.clipShape(Capsule())
+		VStack(alignment: .leading, spacing: 10) {
+			HStack(spacing: 18) {
+				UpdateAppIconView(url: update.iconURL)
+				
+				NBTitleWithSubtitleView(
+					title: update.appName,
+					subtitle: _subtitle,
+					linelimit: 0
+				)
+				
+				Button {
+					_startUpdateDownload()
+				} label: {
+					Group {
+						if _isDownloading {
+							ProgressView()
+								.frame(minWidth: 48)
+						} else {
+							Text(.localized("Update"))
+								.lineLimit(1)
+								.font(.headline.bold())
+								.foregroundStyle(Color.accentColor)
+								.padding(.horizontal, 18)
+								.padding(.vertical, 6)
+								.background(Color(uiColor: .quaternarySystemFill))
+								.clipShape(Capsule())
+						}
 					}
 				}
-			}
-			.buttonStyle(.borderless)
-			.disabled(_isDownloading)
-			
-			Menu {
-				Button(.localized("Hide This Update"), systemImage: "eye.slash") {
-					updateManager.hideCurrentUpdate(update)
-				}
+				.buttonStyle(.borderless)
+				.disabled(_isDownloading)
 				
-				Button(.localized("Hide Updates for This App"), systemImage: "bell.slash") {
-					updateManager.hideUpdatesForApp(update)
+				Menu {
+					Button(.localized("Hide This Update"), systemImage: "eye.slash") {
+						updateManager.hideCurrentUpdate(update)
+					}
+					
+					Button(.localized("Hide Updates for This App"), systemImage: "bell.slash") {
+						updateManager.hideUpdatesForApp(update)
+					}
+				} label: {
+					Image(systemName: "ellipsis")
+						.frame(width: 24, height: 32)
 				}
-			} label: {
-				Image(systemName: "ellipsis")
-					.frame(width: 24, height: 32)
+				.buttonStyle(.borderless)
 			}
-			.buttonStyle(.borderless)
+			
+			if let changelog = _changelog {
+				Text(changelog)
+					.font(.footnote)
+					.foregroundStyle(.secondary)
+					.lineLimit(_isChangelogExpanded ? nil : 3)
+					.fixedSize(horizontal: false, vertical: true)
+					.padding(.leading, 75)
+					.contentShape(Rectangle())
+					.onTapGesture {
+						withAnimation(.easeInOut(duration: 0.2)) {
+							_isChangelogExpanded.toggle()
+						}
+					}
+			}
 		}
 		.padding(isRegular ? 12 : 0)
 		.background(

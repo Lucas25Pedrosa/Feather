@@ -13,6 +13,7 @@ struct BackupView: View {
 	@StateObject private var backupManager = BackupManager.shared
 	@StateObject private var installationRegistry = InstallationRegistry.shared
 	@State private var _serverURL = ""
+	@State private var _serverPassword = ""
 	@State private var _enteredRecoveryKey = ""
 	@State private var _showRecoveryKey = false
 	@State private var _alertMessage: String?
@@ -25,6 +26,14 @@ struct BackupView: View {
 				Section {
 					TextField(.localized("Server URL"), text: $_serverURL)
 						.keyboardType(.URL)
+						.textInputAutocapitalization(.never)
+						.autocorrectionDisabled()
+						.onSubmit {
+							_doConnect()
+						}
+					
+					SecureField(.localized("Server Password"), text: $_serverPassword)
+						.textContentType(.password)
 						.textInputAutocapitalization(.never)
 						.autocorrectionDisabled()
 						.onSubmit {
@@ -48,10 +57,13 @@ struct BackupView: View {
 				} header: {
 					Text(.localized("Backup Server"))
 				} footer: {
-					if case .failed(let message) = backupManager.connectionState {
-						Text(message)
-					} else {
-						Text(.localized("Enter the address of a compatible Feather backup server. The server and recovery key are validated before backup is enabled."))
+					VStack(alignment: .leading, spacing: 4) {
+						if case .failed(let message) = backupManager.connectionState {
+							Text(message)
+						} else {
+							Text(.localized("Enter the address of a compatible Feather backup server. The server and recovery key are validated before backup is enabled."))
+						}
+						Text(.localized("Leave blank if the server does not have a password."))
 					}
 				}
 				
@@ -168,6 +180,9 @@ struct BackupView: View {
 			if _serverURL.isEmpty {
 				_serverURL = backupManager.serverURLString
 			}
+			if _serverPassword.isEmpty {
+				_serverPassword = backupManager.serverPassword
+			}
 		}
 		.task {
 			guard
@@ -179,6 +194,9 @@ struct BackupView: View {
 			
 			if _serverURL.isEmpty {
 				_serverURL = backupManager.serverURLString
+			}
+			if _serverPassword.isEmpty {
+				_serverPassword = backupManager.serverPassword
 			}
 			await backupManager.refreshConnection()
 		}
@@ -230,7 +248,7 @@ struct BackupView: View {
 					.foregroundStyle(.secondary)
 			}
 		case .connected:
-			Text("Conectado")
+			Text(.localized("Connected"))
 				.fontWeight(.semibold)
 				.foregroundStyle(.green)
 		case .failed(_):
@@ -260,8 +278,12 @@ struct BackupView: View {
 	private func _doConnect() {
 		Task {
 			do {
-				try await backupManager.connect(serverURL: _serverURL)
+				try await backupManager.connect(
+					serverURL: _serverURL,
+					serverPassword: _serverPassword
+				)
 				_serverURL = backupManager.serverURLString
+				_serverPassword = backupManager.serverPassword
 			} catch {
 				_alertMessage = error.localizedDescription
 			}
@@ -292,8 +314,12 @@ struct BackupView: View {
 			if !_serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 				Task {
 					do {
-						try await backupManager.connect(serverURL: _serverURL)
+						try await backupManager.connect(
+							serverURL: _serverURL,
+							serverPassword: _serverPassword
+						)
 						_serverURL = backupManager.serverURLString
+						_serverPassword = backupManager.serverPassword
 						backupManager.setEnabled(true)
 						try await backupManager.backupNow()
 						_alertMessage = .localized("A new recovery key was generated, copied, connected, and backed up. Save the key somewhere safe.")

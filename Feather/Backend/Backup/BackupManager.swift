@@ -32,6 +32,7 @@ enum FeatherBackupError: LocalizedError {
 	case invalidRecoveryKey
 	case unableToGenerateKey
 	case unableToStoreKey
+	case unableToStoreServerPassword
 	case missingRecoveryKey
 	case missingServer
 	case notConnected
@@ -49,37 +50,42 @@ enum FeatherBackupError: LocalizedError {
 	var errorDescription: String? {
 		switch self {
 		case .invalidRecoveryKey:
-			return "The recovery key is invalid."
+			return NSLocalizedString("The recovery key is invalid.", comment: "")
 		case .unableToGenerateKey:
-			return "A recovery key could not be generated."
+			return NSLocalizedString("A recovery key could not be generated.", comment: "")
 		case .unableToStoreKey:
-			return "The recovery key could not be stored securely on this device."
+			return NSLocalizedString("The recovery key could not be stored securely on this device.", comment: "")
+		case .unableToStoreServerPassword:
+			return NSLocalizedString("The server password could not be stored securely on this device.", comment: "")
 		case .missingRecoveryKey:
-			return "Add or generate a recovery key first."
+			return NSLocalizedString("Add or generate a recovery key first.", comment: "")
 		case .missingServer:
-			return "Add the backup server URL first."
+			return NSLocalizedString("Add the backup server URL first.", comment: "")
 		case .notConnected:
-			return "Connect to the backup server first."
+			return NSLocalizedString("Connect to the backup server first.", comment: "")
 		case .invalidEndpoint:
-			return "The backup service address is invalid. Use an HTTPS address."
+			return NSLocalizedString("The backup service address is invalid. Use an HTTPS address.", comment: "")
 		case .invalidBackupService:
-			return "This address is not a compatible Feather backup service."
+			return NSLocalizedString("This address is not a compatible Feather backup service.", comment: "")
 		case .encryptionFailed:
-			return "The backup could not be encrypted."
+			return NSLocalizedString("The backup could not be encrypted.", comment: "")
 		case .invalidServerResponse:
-			return "The backup service returned an invalid response."
+			return NSLocalizedString("The backup service returned an invalid response.", comment: "")
 		case .backupNotFound:
-			return "No backup was found for this recovery key."
+			return NSLocalizedString("No backup was found for this recovery key.", comment: "")
 		case .unauthorized:
-			return "The recovery key was not accepted by the backup service."
+			return NSLocalizedString("The server password or recovery key was not accepted by the backup service.", comment: "")
 		case .serverError(let status):
-			return "The backup service returned HTTP \(status)."
+			return String(
+				format: NSLocalizedString("The backup service returned HTTP %d.", comment: ""),
+				status
+			)
 		case .invalidBackup:
-			return "The downloaded backup is invalid or the recovery key is incorrect."
+			return NSLocalizedString("The downloaded backup is invalid or the recovery key is incorrect.", comment: "")
 		case .unsupportedBackupVersion:
-			return "This backup was created by an unsupported backup format."
+			return NSLocalizedString("This backup was created by an unsupported backup format.", comment: "")
 		case .busy:
-			return "A backup operation is already in progress."
+			return NSLocalizedString("A backup operation is already in progress.", comment: "")
 		}
 	}
 }
@@ -91,11 +97,13 @@ final class BackupManager: ObservableObject {
 	private static let _serverURLKey = "Feather.cloudBackup.serverURL"
 	private static let _enabledKey = "Feather.cloudBackup.enabled"
 	private static let _lastBackupKey = "Feather.cloudBackup.lastBackupDate"
-	private static let _keychainAccount = "Feather.CloudBackup.RecoveryKey"
+	private static let _recoveryKeyKeychainAccount = "Feather.CloudBackup.RecoveryKey"
+	private static let _serverPasswordKeychainAccount = "Feather.CloudBackup.ServerPassword"
 	private static let _keyLengthBytes = 20
 	
 	@Published private(set) var recoveryKey: String?
 	@Published private(set) var serverURLString: String
+	@Published private(set) var serverPassword: String
 	@Published private(set) var connectionState: BackupConnectionState = .idle
 	@Published private(set) var isEnabled: Bool
 	@Published private(set) var lastBackupDate: Date?
@@ -106,11 +114,13 @@ final class BackupManager: ObservableObject {
 	private init() {
 		let storedRecoveryKey = Self._loadRecoveryKey()
 		let storedServerURL = UserDefaults.standard.string(forKey: Self._serverURLKey) ?? ""
+		let storedServerPassword = Self._loadKeychainString(account: Self._serverPasswordKeychainAccount) ?? ""
 		let storedEnabled = UserDefaults.standard.bool(forKey: Self._enabledKey)
 		let storedLastBackupDate = UserDefaults.standard.object(forKey: Self._lastBackupKey) as? Date
 		
 		recoveryKey = storedRecoveryKey
 		serverURLString = storedServerURL
+		serverPassword = storedServerPassword
 		isEnabled = storedEnabled
 			&& storedRecoveryKey != nil
 			&& !storedServerURL.isEmpty
@@ -165,6 +175,22 @@ final class BackupManager: ObservableObject {
 		UserDefaults.standard.set(normalized, forKey: Self._serverURLKey)
 	}
 	
+	func saveServerPassword(_ value: String) throws {
+		guard value != serverPassword else { return }
+		
+		if value.isEmpty {
+			Self._deleteKeychainValue(account: Self._serverPasswordKeychainAccount)
+		} else if !Self._saveKeychainString(value, account: Self._serverPasswordKeychainAccount) {
+			throw FeatherBackupError.unableToStoreServerPassword
+		}
+		
+		_automaticBackupTask?.cancel()
+		serverPassword = value
+		connectionState = .idle
+		isEnabled = false
+		UserDefaults.standard.set(false, forKey: Self._enabledKey)
+	}
+	
 	@discardableResult
 	func generateRecoveryKey() throws -> String {
 		var bytes = [UInt8](repeating: 0, count: Self._keyLengthBytes)
@@ -212,10 +238,13 @@ final class BackupManager: ObservableObject {
 		}
 	}
 	
-	func connect(serverURL: String) async throws {
+	func connect(serverURL: String, serverPassword: String? = nil) async throws {
 		guard !isBusy else { throw FeatherBackupError.busy }
 		guard let recoveryKey else { throw FeatherBackupError.missingRecoveryKey }
 		try saveServerURL(serverURL)
+		if let serverPassword {
+			try saveServerPassword(serverPassword)
+		}
 		
 		connectionState = .checking
 		isBusy = true
@@ -284,6 +313,7 @@ final class BackupManager: ObservableObject {
 		request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
 		request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
 		request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+		_applyServerPassword(to: &request)
 		
 		do {
 			let (_, response) = try await URLSession.shared.data(for: request)
@@ -320,6 +350,7 @@ final class BackupManager: ObservableObject {
 		request.timeoutInterval = 30
 		request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
 		request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+		_applyServerPassword(to: &request)
 		
 		let (encryptedData, response): (Data, URLResponse)
 		do {
@@ -389,6 +420,7 @@ final class BackupManager: ObservableObject {
 		request.timeoutInterval = 15
 		request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
 		request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+		_applyServerPassword(to: &request)
 		
 		let (_, response) = try await URLSession.shared.data(for: request)
 		guard let http = response as? HTTPURLResponse else {
@@ -403,6 +435,11 @@ final class BackupManager: ObservableObject {
 		default:
 			throw FeatherBackupError.serverError(http.statusCode)
 		}
+	}
+	
+	private func _applyServerPassword(to request: inout URLRequest) {
+		guard !serverPassword.isEmpty else { return }
+		request.setValue(serverPassword, forHTTPHeaderField: "X-Feather-Server-Key")
 	}
 	
 	private func _storeRecoveryKey(_ rawKey: String) throws {
@@ -541,16 +578,16 @@ private extension BackupManager {
 		}
 	}
 	
-	static func _keychainQuery() -> [String: Any] {
+	static func _keychainQuery(account: String) -> [String: Any] {
 		[
 			kSecClass as String: kSecClassGenericPassword,
 			kSecAttrService as String: Bundle.main.bundleIdentifier ?? "Feather",
-			kSecAttrAccount as String: _keychainAccount,
+			kSecAttrAccount as String: account,
 		]
 	}
 	
-	static func _loadRecoveryKey() -> String? {
-		var query = _keychainQuery()
+	static func _loadKeychainString(account: String) -> String? {
+		var query = _keychainQuery(account: account)
 		query[kSecReturnData as String] = true
 		query[kSecMatchLimit as String] = kSecMatchLimitOne
 		
@@ -558,16 +595,15 @@ private extension BackupManager {
 		guard
 			SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
 			let data = item as? Data,
-			let value = String(data: data, encoding: .utf8),
-			let normalized = _normalizeRecoveryKey(value)
+			let value = String(data: data, encoding: .utf8)
 		else {
 			return nil
 		}
-		return normalized
+		return value
 	}
 	
-	static func _saveRecoveryKey(_ value: String) -> Bool {
-		let query = _keychainQuery()
+	static func _saveKeychainString(_ value: String, account: String) -> Bool {
+		let query = _keychainQuery(account: account)
 		SecItemDelete(query as CFDictionary)
 		
 		guard let data = value.data(using: .utf8) else { return false }
@@ -577,7 +613,25 @@ private extension BackupManager {
 		return SecItemAdd(item as CFDictionary, nil) == errSecSuccess
 	}
 	
+	static func _deleteKeychainValue(account: String) {
+		SecItemDelete(_keychainQuery(account: account) as CFDictionary)
+	}
+	
+	static func _loadRecoveryKey() -> String? {
+		guard
+			let value = _loadKeychainString(account: _recoveryKeyKeychainAccount),
+			let normalized = _normalizeRecoveryKey(value)
+		else {
+			return nil
+		}
+		return normalized
+	}
+	
+	static func _saveRecoveryKey(_ value: String) -> Bool {
+		_saveKeychainString(value, account: _recoveryKeyKeychainAccount)
+	}
+	
 	static func _deleteRecoveryKey() {
-		SecItemDelete(_keychainQuery() as CFDictionary)
+		_deleteKeychainValue(account: _recoveryKeyKeychainAccount)
 	}
 }

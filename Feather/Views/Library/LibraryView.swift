@@ -310,5 +310,6 @@ extension LibraryView {
 			case .signed: return .localized("Signed")
 			case .imported: return .localized("Imported")
 			}
+		}
 	}
 }

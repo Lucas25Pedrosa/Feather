@@ -16,12 +16,26 @@ private struct FeatherBackupPayload: Codable {
 	let records: [InstalledSourceAppRecord]
 }
 
+private struct FeatherBackupHealthResponse: Decodable {
+	let ok: Bool?
+	let service: String?
+}
+
+enum BackupConnectionState: Equatable {
+	case idle
+	case checking
+	case connected
+	case failed(String)
+}
+
 enum FeatherBackupError: LocalizedError {
 	case invalidRecoveryKey
 	case unableToGenerateKey
 	case unableToStoreKey
 	case missingRecoveryKey
+	case missingServer
 	case invalidEndpoint
+	case invalidBackupService
 	case encryptionFailed
 	case invalidServerResponse
 	case backupNotFound
@@ -41,8 +55,12 @@ enum FeatherBackupError: LocalizedError {
 			return "The recovery key could not be stored securely on this device."
 		case .missingRecoveryKey:
 			return "Add or generate a recovery key first."
+		case .missingServer:
+			return "Add the backup server URL first."
 		case .invalidEndpoint:
-			return "The backup service address is invalid."
+			return "The backup service address is invalid. Use an HTTPS address."
+		case .invalidBackupService:
+			return "This address is not a compatible Feather backup service."
 		case .encryptionFailed:
 			return "The backup could not be encrypted."
 		case .invalidServerResponse:
@@ -67,13 +85,15 @@ enum FeatherBackupError: LocalizedError {
 final class BackupManager: ObservableObject {
 	static let shared = BackupManager()
 	
-	private static let _endpoint = "https://feather-backup.f8s79jzkbk.workers.dev"
+	private static let _serverURLKey = "Feather.cloudBackup.serverURL"
 	private static let _enabledKey = "Feather.cloudBackup.enabled"
 	private static let _lastBackupKey = "Feather.cloudBackup.lastBackupDate"
 	private static let _keychainAccount = "Feather.CloudBackup.RecoveryKey"
 	private static let _keyLengthBytes = 20
 	
 	@Published private(set) var recoveryKey: String?
+	@Published private(set) var serverURLString: String
+	@Published private(set) var connectionState: BackupConnectionState = .idle
 	@Published private(set) var isEnabled: Bool
 	@Published private(set) var lastBackupDate: Date?
 	@Published private(set) var isBusy = false
@@ -82,7 +102,10 @@ final class BackupManager: ObservableObject {
 	
 	private init() {
 		recoveryKey = Self._loadRecoveryKey()
-		isEnabled = UserDefaults.standard.bool(forKey: Self._enabledKey) && recoveryKey != nil
+		serverURLString = UserDefaults.standard.string(forKey: Self._serverURLKey) ?? ""
+		isEnabled = UserDefaults.standard.bool(forKey: Self._enabledKey)
+			&& recoveryKey != nil
+			&& !serverURLString.isEmpty
 		lastBackupDate = UserDefaults.standard.object(forKey: Self._lastBackupKey) as? Date
 		
 		NotificationCenter.default.addObserver(
@@ -101,14 +124,33 @@ final class BackupManager: ObservableObject {
 		return Self._formatRecoveryKey(recoveryKey)
 	}
 	
+	var isConnected: Bool {
+		connectionState == .connected
+	}
+	
 	func setEnabled(_ enabled: Bool) {
-		let resolved = enabled && recoveryKey != nil
+		let resolved = enabled
+			&& recoveryKey != nil
+			&& !serverURLString.isEmpty
+			&& isConnected
 		isEnabled = resolved
 		UserDefaults.standard.set(resolved, forKey: Self._enabledKey)
 		
 		if !resolved {
 			_automaticBackupTask?.cancel()
 		}
+	}
+	
+	func saveServerURL(_ value: String) throws {
+		guard let normalized = Self._normalizeServerURL(value) else {
+			throw FeatherBackupError.invalidEndpoint
+		}
+		
+		if normalized != serverURLString {
+			connectionState = .idle
+		}
+		serverURLString = normalized
+		UserDefaults.standard.set(normalized, forKey: Self._serverURLKey)
 	}
 	
 	@discardableResult
@@ -140,11 +182,49 @@ final class BackupManager: ObservableObject {
 		_automaticBackupTask?.cancel()
 		Self._deleteRecoveryKey()
 		recoveryKey = nil
-		setEnabled(false)
+		connectionState = .idle
+		isEnabled = false
+		UserDefaults.standard.set(false, forKey: Self._enabledKey)
+	}
+	
+	func refreshConnection() async {
+		guard recoveryKey != nil, !serverURLString.isEmpty else {
+			connectionState = .idle
+			return
+		}
+		
+		do {
+			try await connect(serverURL: serverURLString)
+		} catch {
+			// connect(serverURL:) already stores the visible failure state.
+		}
+	}
+	
+	func connect(serverURL: String) async throws {
+		guard !isBusy else { throw FeatherBackupError.busy }
+		guard let recoveryKey else { throw FeatherBackupError.missingRecoveryKey }
+		try saveServerURL(serverURL)
+		
+		connectionState = .checking
+		isBusy = true
+		defer { isBusy = false }
+		
+		do {
+			try await _validateServiceHealth()
+			try await _validateCredentials(recoveryKey: recoveryKey)
+			connectionState = .connected
+			isEnabled = true
+			UserDefaults.standard.set(true, forKey: Self._enabledKey)
+		} catch {
+			connectionState = .failed(error.localizedDescription)
+			isEnabled = false
+			UserDefaults.standard.set(false, forKey: Self._enabledKey)
+			throw error
+		}
 	}
 	
 	func scheduleAutomaticBackup() {
-		guard isEnabled, recoveryKey != nil else { return }
+		guard isEnabled, recoveryKey != nil, !serverURLString.isEmpty else { return }
 		
 		_automaticBackupTask?.cancel()
 		_automaticBackupTask = Task { [weak self] in
@@ -157,6 +237,7 @@ final class BackupManager: ObservableObject {
 	func backupNow() async throws {
 		guard !isBusy else { throw FeatherBackupError.busy }
 		guard let recoveryKey else { throw FeatherBackupError.missingRecoveryKey }
+		guard !serverURLString.isEmpty else { throw FeatherBackupError.missingServer }
 		guard isEnabled else { throw FeatherBackupError.missingRecoveryKey }
 		
 		isBusy = true
@@ -176,7 +257,7 @@ final class BackupManager: ObservableObject {
 		
 		let authToken = Self._authToken(for: recoveryKey)
 		let backupID = Self._backupID(for: authToken)
-		guard let url = Self._url(path: "/v1/backups/\(backupID)") else {
+		guard let url = Self._url(baseURLString: serverURLString, path: "/v1/backups/\(backupID)") else {
 			throw FeatherBackupError.invalidEndpoint
 		}
 		
@@ -188,8 +269,14 @@ final class BackupManager: ObservableObject {
 		request.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
 		request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
 		
-		let (_, response) = try await URLSession.shared.data(for: request)
-		try Self._validate(response: response, allowNotFound: false)
+		do {
+			let (_, response) = try await URLSession.shared.data(for: request)
+			try Self._validate(response: response, allowNotFound: false)
+			connectionState = .connected
+		} catch {
+			connectionState = .failed(error.localizedDescription)
+			throw error
+		}
 		
 		let now = Date()
 		lastBackupDate = now
@@ -200,13 +287,14 @@ final class BackupManager: ObservableObject {
 	func restoreCurrentBackup() async throws -> Int {
 		guard !isBusy else { throw FeatherBackupError.busy }
 		guard let recoveryKey else { throw FeatherBackupError.missingRecoveryKey }
+		guard !serverURLString.isEmpty else { throw FeatherBackupError.missingServer }
 		
 		isBusy = true
 		defer { isBusy = false }
 		
 		let authToken = Self._authToken(for: recoveryKey)
 		let backupID = Self._backupID(for: authToken)
-		guard let url = Self._url(path: "/v1/backups/\(backupID)/current") else {
+		guard let url = Self._url(baseURLString: serverURLString, path: "/v1/backups/\(backupID)/current") else {
 			throw FeatherBackupError.invalidEndpoint
 		}
 		
@@ -216,8 +304,15 @@ final class BackupManager: ObservableObject {
 		request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
 		request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
 		
-		let (encryptedData, response) = try await URLSession.shared.data(for: request)
-		try Self._validate(response: response, allowNotFound: true)
+		let (encryptedData, response): (Data, URLResponse)
+		do {
+			(encryptedData, response) = try await URLSession.shared.data(for: request)
+			try Self._validate(response: response, allowNotFound: true)
+			connectionState = .connected
+		} catch {
+			connectionState = .failed(error.localizedDescription)
+			throw error
+		}
 		
 		let plainData: Data
 		do {
@@ -243,20 +338,109 @@ final class BackupManager: ObservableObject {
 		return payload.records.count
 	}
 	
+	private func _validateServiceHealth() async throws {
+		guard let url = Self._url(baseURLString: serverURLString, path: "/health") else {
+			throw FeatherBackupError.invalidEndpoint
+		}
+		
+		var request = URLRequest(url: url)
+		request.httpMethod = "GET"
+		request.timeoutInterval = 15
+		request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+		
+		let (data, response) = try await URLSession.shared.data(for: request)
+		try Self._validate(response: response, allowNotFound: false)
+		
+		guard
+			let health = try? JSONDecoder().decode(FeatherBackupHealthResponse.self, from: data),
+			health.ok == true,
+			health.service == "feather-backup"
+		else {
+			throw FeatherBackupError.invalidBackupService
+		}
+	}
+	
+	private func _validateCredentials(recoveryKey: String) async throws {
+		let authToken = Self._authToken(for: recoveryKey)
+		let backupID = Self._backupID(for: authToken)
+		guard let url = Self._url(baseURLString: serverURLString, path: "/v1/backups/\(backupID)/current") else {
+			throw FeatherBackupError.invalidEndpoint
+		}
+		
+		var request = URLRequest(url: url)
+		request.httpMethod = "GET"
+		request.timeoutInterval = 15
+		request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+		request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+		
+		let (_, response) = try await URLSession.shared.data(for: request)
+		guard let http = response as? HTTPURLResponse else {
+			throw FeatherBackupError.invalidServerResponse
+		}
+		
+		switch http.statusCode {
+		case 200..<300, 404:
+			return
+		case 401, 403:
+			throw FeatherBackupError.unauthorized
+		default:
+			throw FeatherBackupError.serverError(http.statusCode)
+		}
+	}
+	
 	private func _storeRecoveryKey(_ rawKey: String) throws {
 		guard Self._saveRecoveryKey(rawKey) else {
 			throw FeatherBackupError.unableToStoreKey
 		}
 		
 		recoveryKey = rawKey
-		setEnabled(true)
+		connectionState = .idle
+		isEnabled = false
+		UserDefaults.standard.set(false, forKey: Self._enabledKey)
 	}
 }
 
 private extension BackupManager {
-	static func _url(path: String) -> URL? {
-		guard var components = URLComponents(string: _endpoint) else { return nil }
-		components.path = path
+	static func _normalizeServerURL(_ value: String) -> String? {
+		var candidate = value.trimmingCharacters(in: .whitespacesAndNewlines)
+		guard !candidate.isEmpty else { return nil }
+		
+		if !candidate.contains("://") {
+			candidate = "https://\(candidate)"
+		}
+		
+		guard var components = URLComponents(string: candidate) else { return nil }
+		guard components.scheme?.lowercased() == "https" else { return nil }
+		guard let host = components.host, !host.isEmpty else { return nil }
+		components.scheme = "https"
+		components.host = host.lowercased()
+		components.query = nil
+		components.fragment = nil
+		
+		if components.path == "/" {
+			components.path = ""
+		} else {
+			while components.path.hasSuffix("/") {
+				components.path.removeLast()
+			}
+		}
+		
+		return components.url?.absoluteString
+	}
+	
+	static func _url(baseURLString: String, path: String) -> URL? {
+		guard
+			let normalized = _normalizeServerURL(baseURLString),
+			var components = URLComponents(string: normalized)
+		else {
+			return nil
+		}
+		
+		let basePath = components.path
+		let requestedPath = path.hasPrefix("/") ? path : "/\(path)"
+		components.path = basePath + requestedPath
+		components.query = nil
+		components.fragment = nil
 		return components.url
 	}
 	

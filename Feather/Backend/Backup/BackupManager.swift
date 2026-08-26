@@ -114,7 +114,12 @@ final class BackupManager: ObservableObject {
 	@discardableResult
 	func generateRecoveryKey() throws -> String {
 		var bytes = [UInt8](repeating: 0, count: Self._keyLengthBytes)
-		let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+		let status = bytes.withUnsafeMutableBytes { buffer in
+			guard let baseAddress = buffer.baseAddress else {
+				return errSecParam
+			}
+			return SecRandomCopyBytes(kSecRandomDefault, buffer.count, baseAddress)
+		}
 		guard status == errSecSuccess else {
 			throw FeatherBackupError.unableToGenerateKey
 		}

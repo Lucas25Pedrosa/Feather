@@ -20,6 +20,7 @@ struct UpdatesView: View {
 	@State private var _selectedSigningAppPresenting: AnyApp?
 	@State private var _updateSigningIdentity: UpdateSigningIdentity?
 	@State private var _signedUUIDsBeforeSigning: Set<String> = []
+	@State private var _isHiddenUpdatesPresenting = false
 	
 	@FetchRequest(
 		entity: AltSource.entity(),
@@ -82,19 +83,32 @@ struct UpdatesView: View {
 			}
 			.toolbar {
 				ToolbarItem(placement: .topBarTrailing) {
-					Button {
-						Task {
-							await _checkForUpdates()
+					Menu {
+						Button(.localized("Check for Updates"), systemImage: "arrow.triangle.2.circlepath") {
+							Task {
+								await _checkForUpdates()
+							}
+						}
+						.disabled(updateManager.isChecking)
+						
+						Button(.localized("Hidden Updates"), systemImage: "eye.slash") {
+							_isHiddenUpdatesPresenting = true
 						}
 					} label: {
 						if updateManager.isChecking {
 							ProgressView()
 						} else {
-							Image(systemName: "arrow.triangle.2.circlepath")
+							Image(systemName: "ellipsis.circle")
 						}
 					}
-					.disabled(updateManager.isChecking)
-					.accessibilityLabel(.localized("Check for Updates"))
+					.accessibilityLabel(.localized("Update Options"))
+				}
+			}
+			.sheet(isPresented: $_isHiddenUpdatesPresenting) {
+				HiddenUpdatesView {
+					Task {
+						await _checkForUpdates()
+					}
 				}
 			}
 			.fullScreenCover(item: $_selectedSigningAppPresenting) { app in
@@ -195,6 +209,7 @@ struct UpdatesView: View {
 private struct UpdateCellView: View {
 	@Environment(\.horizontalSizeClass) private var horizontalSizeClass
 	@ObservedObject private var downloadManager = DownloadManager.shared
+	@ObservedObject private var updateManager = UpdateManager.shared
 	
 	let update: AppUpdate
 	
@@ -244,6 +259,20 @@ private struct UpdateCellView: View {
 			}
 			.buttonStyle(.borderless)
 			.disabled(_isDownloading)
+			
+			Menu {
+				Button(.localized("Hide This Update"), systemImage: "eye.slash") {
+					updateManager.hideCurrentUpdate(update)
+				}
+				
+				Button(.localized("Hide Updates for This App"), systemImage: "bell.slash") {
+					updateManager.hideUpdatesForApp(update)
+				}
+			} label: {
+				Image(systemName: "ellipsis")
+					.frame(width: 24, height: 32)
+			}
+			.buttonStyle(.borderless)
 		}
 		.padding(isRegular ? 12 : 0)
 		.background(
@@ -260,6 +289,81 @@ private struct UpdateCellView: View {
 			id: _downloadID,
 			sourceProvenance: update.sourceProvenance
 		)
+	}
+}
+
+private struct HiddenUpdatesView: View {
+	@Environment(\.dismiss) private var dismiss
+	@ObservedObject private var registry = InstallationRegistry.shared
+	@ObservedObject private var updateManager = UpdateManager.shared
+	
+	let onChanged: () -> Void
+	
+	private var _records: [InstalledSourceAppRecord] {
+		registry.hiddenRecords
+	}
+	
+	var body: some View {
+		NBNavigationView(.localized("Hidden Updates")) {
+			NBListAdaptable {
+				if !_records.isEmpty {
+					NBSection(
+						.localized("Hidden Updates"),
+						secondary: _records.count.description
+					) {
+						ForEach(_records) { record in
+							HStack(spacing: 12) {
+								VStack(alignment: .leading, spacing: 3) {
+									Text(record.appName ?? record.localBundleIdentifier)
+										.font(.body)
+									
+									Text(_subtitle(for: record))
+										.font(.caption)
+										.foregroundStyle(.secondary)
+								}
+								
+								Spacer()
+								
+								Button(.localized("Show Updates")) {
+									updateManager.showUpdatesForApp(recordID: record.id)
+									onChanged()
+								}
+								.buttonStyle(.borderless)
+							}
+						}
+					}
+				}
+			}
+			.overlay {
+				if _records.isEmpty {
+					if #available(iOS 17, *) {
+						ContentUnavailableView {
+							Label(.localized("No Hidden Updates"), systemImage: "eye")
+						}
+					} else {
+						Text(.localized("No Hidden Updates"))
+							.foregroundStyle(.secondary)
+					}
+				}
+			}
+			.toolbar {
+				ToolbarItem(placement: .topBarTrailing) {
+					Button(.localized("Done")) {
+						dismiss()
+					}
+				}
+			}
+		}
+	}
+	
+	private func _subtitle(for record: InstalledSourceAppRecord) -> String {
+		if record.updatesDisabled == true {
+			return .localized("All updates hidden")
+		}
+		if let version = record.ignoredRemoteVersion {
+			return .localized("Version %@ hidden", arguments: version)
+		}
+		return .localized("Updates hidden")
 	}
 }
 

@@ -155,25 +155,6 @@ struct LibraryView: View {
 						_bulkDeleteSelectedApps()
 					}
 				} else {
-					ToolbarItem(placement: .topBarTrailing) {
-						Button {
-							Task {
-								await _checkForUpdates()
-							}
-						} label: {
-							Image(systemName: _isUpdateCheckCompleteVisible ? "checkmark.circle.fill" : "arrow.triangle.2.circlepath")
-								.rotationEffect(.degrees(_updateCheckRotation))
-								.animation(
-									updateManager.isChecking
-										? .linear(duration: 0.8).repeatForever(autoreverses: false)
-										: .default,
-									value: _updateCheckRotation
-								)
-						}
-						.disabled(updateManager.isChecking)
-						.accessibilityLabel(.localized("Check for Updates"))
-					}
-					
 					NBToolbarMenu(
 						systemImage: "plus",
 						style: .icon,
@@ -329,6 +310,5 @@ extension LibraryView {
 			case .signed: return .localized("Signed")
 			case .imported: return .localized("Imported")
 			}
-		}
 	}
 }

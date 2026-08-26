@@ -117,8 +117,18 @@ struct UpdatesView: View {
 	}
 	
 	private func _checkForUpdates() async {
+		let sources = Array(_sources)
+		await UpdateDebugProbe.shared.capture(
+			sourceURLs: sources.compactMap { $0.sourceURL }
+		)
+		
 		await updateManager.checkForUpdates(
-			sources: Array(_sources)
+			sources: sources
+		)
+		
+		await UpdateDebugProbe.shared.recordFeatherState(
+			installed: InstallationRegistry.shared.records,
+			updates: updateManager.availableUpdates
 		)
 	}
 	
@@ -297,7 +307,7 @@ private struct HiddenUpdatesView: View {
 			NBListAdaptable {
 				if !_records.isEmpty {
 					NBSection(
-						.localized("Hidden Updates"),
+						"",
 						secondary: _records.count.description
 					) {
 						ForEach(_records) { record in

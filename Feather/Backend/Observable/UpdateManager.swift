@@ -132,7 +132,12 @@ final class UpdateManager: ObservableObject {
 		sources: [AltSource],
 		localApps: [AppInfoPresentable] = []
 	) async {
-		guard !isChecking else { return }
+		// Do not silently discard a pull-to-refresh just because the automatic
+		// check that started when the view appeared is still running. Wait for the
+		// current pass to finish, then execute a new forced network pass.
+		while isChecking {
+			try? await Task.sleep(nanoseconds: 50_000_000)
+		}
 		
 		isChecking = true
 		defer {

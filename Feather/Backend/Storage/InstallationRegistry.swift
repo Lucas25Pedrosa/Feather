@@ -8,6 +8,10 @@
 import Foundation
 import Combine
 
+extension Notification.Name {
+	static let featherInstallationRegistryChanged = Notification.Name("Feather.installationRegistryChanged")
+}
+
 struct InstalledSourceAppRecord: Codable, Equatable, Identifiable {
 	let id: String
 	let localBundleIdentifier: String
@@ -233,9 +237,15 @@ final class InstallationRegistry: ObservableObject {
 		_save()
 	}
 	
+	func restoreBackupRecords(_ restoredRecords: [InstalledSourceAppRecord]) {
+		records = restoredRecords
+		_save(notifyBackup: false)
+	}
+	
 	func reset() {
 		records.removeAll()
 		try? _fileManager.removeItem(at: _fileURL)
+		NotificationCenter.default.post(name: .featherInstallationRegistryChanged, object: nil)
 	}
 	
 	private func _matchesIdentity(
@@ -277,7 +287,7 @@ final class InstallationRegistry: ObservableObject {
 		records = decoded
 	}
 	
-	private func _save() {
+	private func _save(notifyBackup: Bool = true) {
 		let encoder = JSONEncoder()
 		encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
 		
@@ -285,6 +295,13 @@ final class InstallationRegistry: ObservableObject {
 			return
 		}
 		
-		try? data.write(to: _fileURL, options: .atomic)
+		do {
+			try data.write(to: _fileURL, options: .atomic)
+			if notifyBackup {
+				NotificationCenter.default.post(name: .featherInstallationRegistryChanged, object: nil)
+			}
+		} catch {
+			return
+		}
 	}
 }

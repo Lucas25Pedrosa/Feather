@@ -83,8 +83,11 @@ struct SettingsView: View {
 					NavigationLink(destination: InstallationView()) {
 						Label(.localized("Installation"), systemImage: "arrow.down.circle")
 					}
+					NavigationLink(destination: BackupView()) {
+						Label(.localized("Backup & Restore"), systemImage: "icloud")
+					}
 				} footer: {
-					Text(.localized("Configure the apps way of installing, its zip compression levels, and custom modifications to apps."))
+					Text(.localized("Configure signing, installation, archives, and encrypted update-history backups."))
 				}
                 
 				_directories()

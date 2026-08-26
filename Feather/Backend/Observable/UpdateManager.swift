@@ -65,6 +65,27 @@ final class UpdateManager: ObservableObject {
 		_candidateUpdate(for: app)?.sourceProvenance
 	}
 	
+	func hideCurrentUpdate(_ update: AppUpdate) {
+		guard InstallationRegistry.shared.ignoreUpdate(
+			recordID: update.id,
+			remoteVersion: update.remoteVersion
+		) else {
+			return
+		}
+		updates.removeValue(forKey: update.id)
+	}
+	
+	func hideUpdatesForApp(_ update: AppUpdate) {
+		guard InstallationRegistry.shared.disableUpdates(recordID: update.id) else {
+			return
+		}
+		updates.removeValue(forKey: update.id)
+	}
+	
+	func showUpdatesForApp(recordID: String) {
+		_ = InstallationRegistry.shared.showUpdates(recordID: recordID)
+	}
+	
 	func reconcileInstallation(of app: AppInfoPresentable) {
 		guard
 			let localBundleIdentifier = app.identifier,
@@ -229,6 +250,22 @@ final class UpdateManager: ObservableObject {
 				)
 				guard comparison == .orderedDescending else {
 					continue
+				}
+				
+				if installedApp.updatesDisabled == true {
+					continue
+				}
+				
+				if let ignoredVersion = installedApp.ignoredRemoteVersion {
+					if ignoredVersion == remoteVersion {
+						continue
+					}
+					
+					// "Hide This Update" applies only to that exact remote version.
+					InstallationRegistry.shared.clearStaleIgnoredVersion(
+						recordID: installedApp.id,
+						currentRemoteVersion: remoteVersion
+					)
 				}
 				
 				guard let downloadURL = remoteApp.currentDownloadUrl else {

@@ -11,6 +11,7 @@ import UIKit
 
 struct BackupView: View {
 	@StateObject private var backupManager = BackupManager.shared
+	@StateObject private var installationRegistry = InstallationRegistry.shared
 	@State private var _serverURL = ""
 	@State private var _enteredRecoveryKey = ""
 	@State private var _showRecoveryKey = false
@@ -97,6 +98,21 @@ struct BackupView: View {
 					Text(.localized("Recovery Key"))
 				} footer: {
 					Text(.localized("Keep this key somewhere safe. After reinstalling Feather, enter the same server URL and recovery key, connect, and restore the backup."))
+				}
+				
+				Section {
+					NavigationLink(destination: ManuallyInstalledAppsView()) {
+						HStack {
+							Label(.localized("Manage Installed Apps"), systemImage: "app.badge.checkmark")
+							Spacer()
+							Text(installationRegistry.records.count.description)
+								.foregroundStyle(.secondary)
+						}
+					}
+				} header: {
+					Text(.localized("Installed Apps"))
+				} footer: {
+					Text(.localized("Register apps that were already installed before Feather began tracking them. Their saved versions are used to detect newer versions from your sources and are included in cloud backup."))
 				}
 				
 				Section {

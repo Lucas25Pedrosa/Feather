@@ -16,6 +16,7 @@ struct ExtendedTabbarView: View {
 	@StateObject var viewModel = SourcesViewModel.shared
 	
 	@State private var _isAddingPresenting = false
+	@State private var _selectedTab = "tab.sources"
 	
 	@FetchRequest(
 		entity: AltSource.entity(),
@@ -24,15 +25,15 @@ struct ExtendedTabbarView: View {
 	) private var _sources: FetchedResults<AltSource>
 		
 	var body: some View {
-		TabView {
+		TabView(selection: $_selectedTab) {
 			ForEach(TabEnum.defaultTabs, id: \.hashValue) { tab in
-				Tab(tab.title, systemImage: tab.icon) {
+				Tab(tab.title, systemImage: tab.icon, value: _tabSelectionValue(tab)) {
 					TabEnum.view(for: tab)
 				}
 			}
 			
 			ForEach(TabEnum.customizableTabs, id: \.hashValue) { tab in
-				Tab(tab.title, systemImage: tab.icon) {
+				Tab(tab.title, systemImage: tab.icon, value: _tabSelectionValue(tab)) {
 					TabEnum.view(for: tab)
 				}
 				.customizationID("tab.\(tab.rawValue)")
@@ -42,14 +43,14 @@ struct ExtendedTabbarView: View {
 			}
 			
 			TabSection("Sources") {
-				Tab(.localized("All Repositories"), systemImage: "globe.desk") {
+				Tab(.localized("All Repositories"), systemImage: "globe.desk", value: "source.all") {
 					NavigationStack {
 						SourceAppsView(object: Array(_sources), viewModel: viewModel)
 					}
 				}
 				
 				ForEach(_sources, id: \.identifier) { source in
-					Tab {
+					Tab(value: _sourceSelectionValue(source)) {
 						NavigationStack {
 							SourceAppsView(object: [source], viewModel: viewModel)
 						}
@@ -77,6 +78,23 @@ struct ExtendedTabbarView: View {
 			SourcesAddView()
 				.presentationDetents([.medium])
 		}
+		.onReceive(NotificationCenter.default.publisher(for: Notification.Name("Feather.selectTab"))) { notification in
+			guard
+				let rawValue = notification.object as? String,
+				let tab = TabEnum(rawValue: rawValue)
+			else {
+				return
+			}
+			_selectedTab = _tabSelectionValue(tab)
+		}
+	}
+	
+	private func _tabSelectionValue(_ tab: TabEnum) -> String {
+		"tab.\(tab.rawValue)"
+	}
+	
+	private func _sourceSelectionValue(_ source: AltSource) -> String {
+		"source.\(source.identifier ?? source.sourceURL?.absoluteString ?? source.name ?? "unknown")"
 	}
 	
 	@ViewBuilder

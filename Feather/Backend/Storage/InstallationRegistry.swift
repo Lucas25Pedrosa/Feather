@@ -17,10 +17,10 @@ struct InstalledSourceAppRecord: Codable, Equatable, Identifiable {
 	let localBundleIdentifier: String
 	var installedVersion: String
 	var appName: String?
-	let sourceRepositoryURL: URL
+	var sourceRepositoryURL: URL
 	var sourceRepositoryIdentifier: String?
 	var sourceRepositoryName: String?
-	let sourceAppIdentifier: String
+	var sourceAppIdentifier: String
 	var sourceAppVersionDate: Date?
 	var sourceAppDownloadURL: URL?
 	var installedAt: Date
@@ -122,65 +122,68 @@ final class InstallationRegistry: ObservableObject {
 			return false
 		}
 		
-		let now = Date()
-		let matchingRecordIDs = records
-			.filter {
-				_matchesIdentity(
-					$0,
-					sourceRepositoryURL: sourceRepositoryURL,
-					sourceAppIdentifier: sourceAppIdentifier,
-					localBundleIdentifier: localBundleIdentifier
-				)
-			}
-			.sorted { $0.updatedAt > $1.updatedAt }
-			.map(\.id)
-		
-		if let canonicalID = matchingRecordIDs.first {
-			records.removeAll { record in
-				matchingRecordIDs.dropFirst().contains(record.id)
-			}
-			
-			guard let index = records.firstIndex(where: { $0.id == canonicalID }) else {
-				return false
-			}
-			
-			records[index].installedVersion = installedVersion
-			records[index].appName = metadata?.sourceAppName ?? fallbackProvenance?.sourceAppName ?? app.name
-			records[index].sourceRepositoryIdentifier = metadata?.sourceRepositoryIdentifier ?? fallbackProvenance?.sourceRepositoryIdentifier
-			records[index].sourceRepositoryName = metadata?.sourceRepositoryName ?? fallbackProvenance?.sourceRepositoryName
-			records[index].sourceAppVersionDate = metadata?.sourceAppVersionDate ?? fallbackProvenance?.sourceAppVersionDate
-			records[index].sourceAppDownloadURL = metadata?.sourceAppDownloadURL ?? fallbackProvenance?.sourceAppDownloadURL
-			records[index].installedAt = now
-			records[index].updatedAt = now
-			
-			if let ignoredVersion = records[index].ignoredRemoteVersion {
-				let comparison = installedVersion.compare(
-					ignoredVersion,
-					options: [.numeric, .caseInsensitive]
-				)
-				if comparison != .orderedAscending {
-					records[index].ignoredRemoteVersion = nil
-				}
-			}
-		} else {
-			records.append(
-				InstalledSourceAppRecord(
-					id: UUID().uuidString,
-					localBundleIdentifier: localBundleIdentifier,
-					installedVersion: installedVersion,
-					appName: metadata?.sourceAppName ?? fallbackProvenance?.sourceAppName ?? app.name,
-					sourceRepositoryURL: sourceRepositoryURL,
-					sourceRepositoryIdentifier: metadata?.sourceRepositoryIdentifier ?? fallbackProvenance?.sourceRepositoryIdentifier,
-					sourceRepositoryName: metadata?.sourceRepositoryName ?? fallbackProvenance?.sourceRepositoryName,
-					sourceAppIdentifier: sourceAppIdentifier,
-					sourceAppVersionDate: metadata?.sourceAppVersionDate ?? fallbackProvenance?.sourceAppVersionDate,
-					sourceAppDownloadURL: metadata?.sourceAppDownloadURL ?? fallbackProvenance?.sourceAppDownloadURL,
-					installedAt: now,
-					updatedAt: now
-				)
-			)
+		return _upsert(
+			localBundleIdentifier: localBundleIdentifier,
+			installedVersion: installedVersion,
+			appName: metadata?.sourceAppName ?? fallbackProvenance?.sourceAppName ?? app.name,
+			sourceRepositoryURL: sourceRepositoryURL,
+			sourceRepositoryIdentifier: metadata?.sourceRepositoryIdentifier ?? fallbackProvenance?.sourceRepositoryIdentifier,
+			sourceRepositoryName: metadata?.sourceRepositoryName ?? fallbackProvenance?.sourceRepositoryName,
+			sourceAppIdentifier: sourceAppIdentifier,
+			sourceAppVersionDate: metadata?.sourceAppVersionDate ?? fallbackProvenance?.sourceAppVersionDate,
+			sourceAppDownloadURL: metadata?.sourceAppDownloadURL ?? fallbackProvenance?.sourceAppDownloadURL
+		)
+	}
+	
+	@discardableResult
+	func recordManualInstallation(
+		localBundleIdentifier: String,
+		installedVersion: String,
+		provenance: SourceAppProvenance
+	) -> Bool {
+		let bundleIdentifier = localBundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+		let version = installedVersion.trimmingCharacters(in: .whitespacesAndNewlines)
+		guard !bundleIdentifier.isEmpty, !version.isEmpty else {
+			return false
 		}
 		
+		return _upsert(
+			localBundleIdentifier: bundleIdentifier,
+			installedVersion: version,
+			appName: provenance.sourceAppName,
+			sourceRepositoryURL: provenance.sourceRepositoryURL,
+			sourceRepositoryIdentifier: provenance.sourceRepositoryIdentifier,
+			sourceRepositoryName: provenance.sourceRepositoryName,
+			sourceAppIdentifier: provenance.sourceAppIdentifier,
+			sourceAppVersionDate: provenance.sourceAppVersionDate,
+			sourceAppDownloadURL: provenance.sourceAppDownloadURL
+		)
+	}
+	
+	@discardableResult
+	func updateInstalledVersion(recordID: String, version: String) -> Bool {
+		let normalizedVersion = version.trimmingCharacters(in: .whitespacesAndNewlines)
+		guard
+			!normalizedVersion.isEmpty,
+			let index = records.firstIndex(where: { $0.id == recordID })
+		else {
+			return false
+		}
+		
+		records[index].installedVersion = normalizedVersion
+		records[index].updatedAt = Date()
+		_clearIgnoredVersionIfNeeded(at: index)
+		_save()
+		return true
+	}
+	
+	@discardableResult
+	func remove(recordID: String) -> Bool {
+		let previousCount = records.count
+		records.removeAll { $0.id == recordID }
+		guard records.count != previousCount else {
+			return false
+		}
 		_save()
 		return true
 	}
@@ -238,7 +241,7 @@ final class InstallationRegistry: ObservableObject {
 	}
 	
 	func restoreBackupRecords(_ restoredRecords: [InstalledSourceAppRecord]) {
-		records = restoredRecords
+		records = _canonicalized(restoredRecords)
 		_save(notifyBackup: false)
 	}
 	
@@ -248,29 +251,92 @@ final class InstallationRegistry: ObservableObject {
 		NotificationCenter.default.post(name: .featherInstallationRegistryChanged, object: nil)
 	}
 	
-	private func _matchesIdentity(
-		_ record: InstalledSourceAppRecord,
+	@discardableResult
+	private func _upsert(
+		localBundleIdentifier: String,
+		installedVersion: String,
+		appName: String?,
 		sourceRepositoryURL: URL,
+		sourceRepositoryIdentifier: String?,
+		sourceRepositoryName: String?,
 		sourceAppIdentifier: String,
-		localBundleIdentifier: String
+		sourceAppVersionDate: Date?,
+		sourceAppDownloadURL: URL?
 	) -> Bool {
-		_normalizedSourceURL(record.sourceRepositoryURL)
-			== _normalizedSourceURL(sourceRepositoryURL)
-			&& record.sourceAppIdentifier == sourceAppIdentifier
-			&& record.localBundleIdentifier == localBundleIdentifier
+		let now = Date()
+		let matchingRecordIDs = records
+			.filter { $0.localBundleIdentifier == localBundleIdentifier }
+			.sorted { $0.updatedAt > $1.updatedAt }
+			.map(\.id)
+		
+		if let canonicalID = matchingRecordIDs.first {
+			records.removeAll { record in
+				matchingRecordIDs.dropFirst().contains(record.id)
+			}
+			
+			guard let index = records.firstIndex(where: { $0.id == canonicalID }) else {
+				return false
+			}
+			
+			records[index].installedVersion = installedVersion
+			records[index].appName = appName
+			records[index].sourceRepositoryURL = sourceRepositoryURL
+			records[index].sourceRepositoryIdentifier = sourceRepositoryIdentifier
+			records[index].sourceRepositoryName = sourceRepositoryName
+			records[index].sourceAppIdentifier = sourceAppIdentifier
+			records[index].sourceAppVersionDate = sourceAppVersionDate
+			records[index].sourceAppDownloadURL = sourceAppDownloadURL
+			records[index].installedAt = now
+			records[index].updatedAt = now
+			_clearIgnoredVersionIfNeeded(at: index)
+		} else {
+			records.append(
+				InstalledSourceAppRecord(
+					id: UUID().uuidString,
+					localBundleIdentifier: localBundleIdentifier,
+					installedVersion: installedVersion,
+					appName: appName,
+					sourceRepositoryURL: sourceRepositoryURL,
+					sourceRepositoryIdentifier: sourceRepositoryIdentifier,
+					sourceRepositoryName: sourceRepositoryName,
+					sourceAppIdentifier: sourceAppIdentifier,
+					sourceAppVersionDate: sourceAppVersionDate,
+					sourceAppDownloadURL: sourceAppDownloadURL,
+					installedAt: now,
+					updatedAt: now
+				)
+			)
+		}
+		
+		_save()
+		return true
 	}
 	
-	private func _normalizedSourceURL(_ url: URL) -> String {
-		var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-		let scheme = components?.scheme?.lowercased()
-		let host = components?.host?.lowercased()
-		components?.scheme = scheme
-		components?.host = host
-		components?.fragment = nil
-		
-		let normalized = components?.url ?? url
-		let value = normalized.absoluteString
-		return value.hasSuffix("/") ? String(value.dropLast()) : value
+	private func _clearIgnoredVersionIfNeeded(at index: Int) {
+		guard let ignoredVersion = records[index].ignoredRemoteVersion else {
+			return
+		}
+		let comparison = records[index].installedVersion.compare(
+			ignoredVersion,
+			options: [.numeric, .caseInsensitive]
+		)
+		if comparison != .orderedAscending {
+			records[index].ignoredRemoteVersion = nil
+		}
+	}
+	
+	private func _canonicalized(_ input: [InstalledSourceAppRecord]) -> [InstalledSourceAppRecord] {
+		var canonical: [String: InstalledSourceAppRecord] = [:]
+		for record in input {
+			guard let current = canonical[record.localBundleIdentifier] else {
+				canonical[record.localBundleIdentifier] = record
+				continue
+			}
+			if record.updatedAt > current.updatedAt {
+				canonical[record.localBundleIdentifier] = record
+			}
+		}
+		return Array(canonical.values)
 	}
 	
 	private func _load() {
@@ -284,7 +350,7 @@ final class InstallationRegistry: ObservableObject {
 			return
 		}
 		
-		records = decoded
+		records = _canonicalized(decoded)
 	}
 	
 	private func _save(notifyBackup: Bool = true) {

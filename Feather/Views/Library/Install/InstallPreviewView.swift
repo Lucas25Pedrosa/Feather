@@ -59,7 +59,11 @@ struct InstallPreviewView: View {
 		}
 		.onReceive(viewModel.$status) { newStatus in
 			if case .completed(.success(_)) = newStatus, !_didRecordInstallation {
-				let didRecord = InstallationRegistry.shared.recordInstallation(of: app)
+				let fallbackProvenance = UpdateManager.shared.provenanceForInstallation(of: app)
+				let didRecord = InstallationRegistry.shared.recordInstallation(
+					of: app,
+					fallbackProvenance: fallbackProvenance
+				)
 				_didRecordInstallation = didRecord
 				if didRecord {
 					UpdateManager.shared.reconcileInstallation(of: app)

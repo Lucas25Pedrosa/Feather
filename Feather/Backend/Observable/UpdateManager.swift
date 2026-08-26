@@ -91,6 +91,39 @@ final class UpdateManager: ObservableObject {
 		return candidate
 	}
 	
+	func reconcileInstallation(of app: AppInfoPresentable) {
+		guard
+			let localBundleIdentifier = app.identifier,
+			!localBundleIdentifier.isEmpty,
+			let metadata = Storage.shared.sourceMetadata(for: app),
+			let sourceURL = metadata.sourceRepositoryURL,
+			let sourceAppIdentifier = metadata.sourceAppIdentifier,
+			let installedVersion = metadata.sourceAppVersion ?? app.version,
+			!installedVersion.isEmpty
+		else {
+			return
+		}
+		
+		updates = updates.filter { _, update in
+			let isSameApp = update.localBundleIdentifier == localBundleIdentifier
+				&& update.sourceProvenance.sourceAppIdentifier == sourceAppIdentifier
+				&& _matchesStoredRepository(
+					storedSourceURL: update.sourceURL,
+					sourceURL: sourceURL
+				)
+			
+			guard isSameApp else {
+				return true
+			}
+			
+			let comparison = installedVersion.compare(
+				update.remoteVersion,
+				options: [.numeric, .caseInsensitive]
+			)
+			return comparison == .orderedAscending
+		}
+	}
+	
 	func checkForUpdates(
 		sources: [AltSource],
 		localApps: [AppInfoPresentable] = []

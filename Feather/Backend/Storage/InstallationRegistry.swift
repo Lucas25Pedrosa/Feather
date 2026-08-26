@@ -103,13 +103,17 @@ final class InstallationRegistry: ObservableObject {
 			return false
 		}
 		
+		// For source-linked installs, provenance describes the IPA that was actually
+		// downloaded and signed. Prefer that over AppInfoPresentable.version because
+		// Core Data / view state may still expose the previous version immediately
+		// after an update finishes installing.
 		let installedVersion: String
-		if let appVersion = app.version, !appVersion.isEmpty {
-			installedVersion = appVersion
-		} else if let metadataVersion = metadata?.sourceAppVersion, !metadataVersion.isEmpty {
+		if let metadataVersion = metadata?.sourceAppVersion, !metadataVersion.isEmpty {
 			installedVersion = metadataVersion
 		} else if let fallbackVersion = fallbackProvenance?.sourceAppVersion, !fallbackVersion.isEmpty {
 			installedVersion = fallbackVersion
+		} else if let appVersion = app.version, !appVersion.isEmpty {
+			installedVersion = appVersion
 		} else {
 			return false
 		}

@@ -125,7 +125,9 @@ struct SourceAppsView: View {
 			}
 			_sortOption = SortOption(rawValue: _sortOptionRawValue) ?? .default
 		}
-		.onChange(of: viewModel.isFinished) { _ in
+		.onReceive(viewModel.$sources) { _ in
+			// Source data can change while this screen is already visible.
+			// Rebuild the local contexts immediately instead of waiting for navigation.
 			_load()
 		}
 		.onChange(of: _sortOption) { newValue in
@@ -184,7 +186,6 @@ extension SourceAppsView {
 			ForEach(SortOption.allCases, id: \.displayName) { opt in
 				_sortButton(for: opt)
 			}
-		}
 	}
 	
 	private func _sortButton(for option: SortOption) -> some View {

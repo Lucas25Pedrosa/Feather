@@ -34,6 +34,7 @@ enum FeatherBackupError: LocalizedError {
 	case unableToStoreKey
 	case missingRecoveryKey
 	case missingServer
+	case notConnected
 	case invalidEndpoint
 	case invalidBackupService
 	case encryptionFailed
@@ -57,6 +58,8 @@ enum FeatherBackupError: LocalizedError {
 			return "Add or generate a recovery key first."
 		case .missingServer:
 			return "Add the backup server URL first."
+		case .notConnected:
+			return "Connect to the backup server first."
 		case .invalidEndpoint:
 			return "The backup service address is invalid. Use an HTTPS address."
 		case .invalidBackupService:
@@ -147,8 +150,12 @@ final class BackupManager: ObservableObject {
 		}
 		
 		if normalized != serverURLString {
+			_automaticBackupTask?.cancel()
 			connectionState = .idle
+			isEnabled = false
+			UserDefaults.standard.set(false, forKey: Self._enabledKey)
 		}
+		
 		serverURLString = normalized
 		UserDefaults.standard.set(normalized, forKey: Self._serverURLKey)
 	}
@@ -213,18 +220,21 @@ final class BackupManager: ObservableObject {
 			try await _validateServiceHealth()
 			try await _validateCredentials(recoveryKey: recoveryKey)
 			connectionState = .connected
-			isEnabled = true
-			UserDefaults.standard.set(true, forKey: Self._enabledKey)
 		} catch {
 			connectionState = .failed(error.localizedDescription)
-			isEnabled = false
-			UserDefaults.standard.set(false, forKey: Self._enabledKey)
 			throw error
 		}
 	}
 	
 	func scheduleAutomaticBackup() {
-		guard isEnabled, recoveryKey != nil, !serverURLString.isEmpty else { return }
+		guard
+			isEnabled,
+			isConnected,
+			recoveryKey != nil,
+			!serverURLString.isEmpty
+		else {
+			return
+		}
 		
 		_automaticBackupTask?.cancel()
 		_automaticBackupTask = Task { [weak self] in
@@ -238,7 +248,8 @@ final class BackupManager: ObservableObject {
 		guard !isBusy else { throw FeatherBackupError.busy }
 		guard let recoveryKey else { throw FeatherBackupError.missingRecoveryKey }
 		guard !serverURLString.isEmpty else { throw FeatherBackupError.missingServer }
-		guard isEnabled else { throw FeatherBackupError.missingRecoveryKey }
+		guard isConnected else { throw FeatherBackupError.notConnected }
+		guard isEnabled else { throw FeatherBackupError.notConnected }
 		
 		isBusy = true
 		defer { isBusy = false }
@@ -288,6 +299,7 @@ final class BackupManager: ObservableObject {
 		guard !isBusy else { throw FeatherBackupError.busy }
 		guard let recoveryKey else { throw FeatherBackupError.missingRecoveryKey }
 		guard !serverURLString.isEmpty else { throw FeatherBackupError.missingServer }
+		guard isConnected else { throw FeatherBackupError.notConnected }
 		
 		isBusy = true
 		defer { isBusy = false }
@@ -393,6 +405,7 @@ final class BackupManager: ObservableObject {
 			throw FeatherBackupError.unableToStoreKey
 		}
 		
+		_automaticBackupTask?.cancel()
 		recoveryKey = rawKey
 		connectionState = .idle
 		isEnabled = false

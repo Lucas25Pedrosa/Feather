@@ -20,5 +20,14 @@ struct TabbarView: View {
 					.tag(tab)
 			}
 		}
+		.onReceive(NotificationCenter.default.publisher(for: Notification.Name("Feather.selectTab"))) { notification in
+			guard
+				let rawValue = notification.object as? String,
+				let tab = TabEnum(rawValue: rawValue)
+			else {
+				return
+			}
+			selectedTab = tab
+		}
 	}
 }

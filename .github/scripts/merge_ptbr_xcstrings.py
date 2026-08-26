@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# Build-time pt-BR catalog merge.
 import json
 import subprocess
 from pathlib import Path

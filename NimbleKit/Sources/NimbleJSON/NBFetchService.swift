@@ -29,7 +29,7 @@ public class NBFetchService {
 	private static let _ephemeralSession: URLSession = {
 		let configuration = URLSessionConfiguration.ephemeral
 		configuration.urlCache = nil
-		configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
+		configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
 		configuration.httpCookieStorage = nil
 		return URLSession(configuration: configuration)
 	}()
@@ -70,7 +70,7 @@ extension NBFetchService {
 						completion(result)
 					case .failure where refreshedURL != url:
 						// Some signed or strict endpoints reject unknown query items.
-						// Fall back to the original URL while still bypassing local cache.
+						// Fall back to the original URL while still bypassing caches.
 						self._performFetch(
 							from: url,
 							forceReload: true,
@@ -100,12 +100,13 @@ extension NBFetchService {
 	) {
 		var request = URLRequest(
 			url: url,
-			cachePolicy: forceReload ? .reloadIgnoringLocalCacheData : .useProtocolCachePolicy
+			cachePolicy: forceReload ? .reloadIgnoringLocalAndRemoteCacheData : .useProtocolCachePolicy
 		)
 		
 		if forceReload {
 			request.setValue("no-cache, no-store, max-age=0, must-revalidate", forHTTPHeaderField: "Cache-Control")
 			request.setValue("no-cache", forHTTPHeaderField: "Pragma")
+			request.setValue("0", forHTTPHeaderField: "Expires")
 		}
 		
 		let task = session.dataTask(with: request) { data, _, error in
@@ -141,7 +142,7 @@ extension NBFetchService {
 		queryItems.append(
 			URLQueryItem(
 				name: "_feather_refresh",
-				value: String(Int(Date().timeIntervalSince1970 * 1000))
+				value: UUID().uuidString
 			)
 		)
 		components.queryItems = queryItems

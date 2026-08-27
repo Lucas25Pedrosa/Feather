@@ -51,6 +51,24 @@ struct UpdatesView: View {
 	var body: some View {
 		NBNavigationView(.localized("Updates")) {
 			NBListAdaptable {
+				if updateManager.lastCheckFailedSourceCount > 0 {
+					NBSection("") {
+						Label {
+							Text(
+								.localized(
+									"%d source(s) could not be checked. Existing update information was preserved.",
+									arguments: updateManager.lastCheckFailedSourceCount
+								)
+							)
+							.font(.footnote)
+							.foregroundStyle(.secondary)
+						} icon: {
+							Image(systemName: "exclamationmark.triangle")
+								.foregroundStyle(.orange)
+						}
+					}
+				}
+				
 				if _updateCount > 0 {
 					NBSection(
 						.localized("Available Updates"),
@@ -68,7 +86,9 @@ struct UpdatesView: View {
 			.overlay {
 				if updateManager.isChecking && _updateCount == 0 {
 					ProgressView()
-				} else if !updateManager.isChecking && _updateCount == 0 {
+				} else if !updateManager.isChecking
+					&& _updateCount == 0
+					&& updateManager.lastCheckFailedSourceCount == 0 {
 					if #available(iOS 17, *) {
 						ContentUnavailableView {
 							Label(.localized("No Updates Available"), systemImage: "checkmark.circle.fill")
@@ -212,8 +232,15 @@ private struct UpdateCellView: View {
 	}
 	
 	private var _subtitle: String {
-		let localVersion = update.localVersion ?? .localized("Unknown")
-		return "\(localVersion) → \(update.remoteVersion)"
+		let local = _releaseText(
+			version: update.localVersion ?? .localized("Unknown"),
+			build: update.localBuildVersion
+		)
+		let remote = _releaseText(
+			version: update.remoteVersion,
+			build: update.remoteBuildVersion
+		)
+		return "\(local) → \(remote)"
 	}
 	
 	private var _changelog: String? {
@@ -295,6 +322,11 @@ private struct UpdateCellView: View {
 					.fill(Color(uiColor: .quaternarySystemFill))
 				: nil
 		)
+	}
+	
+	private func _releaseText(version: String, build: String?) -> String {
+		guard let build, !build.isEmpty else { return version }
+		return "\(version) (\(build))"
 	}
 	
 	private func _startUpdateDownload() {

@@ -20,6 +20,28 @@ struct SourceAppProvenance: Equatable {
 	let sourceAppVersionDate: Date?
 	let sourceAppDownloadURL: URL?
 	
+	init(
+		sourceRepositoryURL: URL,
+		sourceRepositoryIdentifier: String? = nil,
+		sourceRepositoryName: String? = nil,
+		sourceAppIdentifier: String,
+		sourceAppName: String? = nil,
+		sourceAppVersion: String? = nil,
+		sourceAppBuildVersion: String? = nil,
+		sourceAppVersionDate: Date? = nil,
+		sourceAppDownloadURL: URL? = nil
+	) {
+		self.sourceRepositoryURL = sourceRepositoryURL
+		self.sourceRepositoryIdentifier = sourceRepositoryIdentifier
+		self.sourceRepositoryName = sourceRepositoryName
+		self.sourceAppIdentifier = sourceAppIdentifier
+		self.sourceAppName = sourceAppName
+		self.sourceAppVersion = sourceAppVersion
+		self.sourceAppBuildVersion = sourceAppBuildVersion
+		self.sourceAppVersionDate = sourceAppVersionDate
+		self.sourceAppDownloadURL = sourceAppDownloadURL
+	}
+	
 	var sourceVersionID: String {
 		[
 			sourceRepositoryIdentifier ?? sourceRepositoryURL.absoluteString,

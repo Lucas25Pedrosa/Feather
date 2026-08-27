@@ -16,6 +16,8 @@ struct InstalledSourceAppRecord: Codable, Equatable, Identifiable {
 	let id: String
 	let localBundleIdentifier: String
 	var installedVersion: String
+	// Optional so registries created by Feather 3.0 remain decodable.
+	var installedBuildVersion: String? = nil
 	var appName: String?
 	var sourceRepositoryURL: URL
 	var sourceRepositoryIdentifier: String?
@@ -38,6 +40,7 @@ struct InstalledSourceAppRecord: Codable, Equatable, Identifiable {
 			sourceAppIdentifier: sourceAppIdentifier,
 			sourceAppName: appName,
 			sourceAppVersion: installedVersion,
+			sourceAppBuildVersion: installedBuildVersion,
 			sourceAppVersionDate: sourceAppVersionDate,
 			sourceAppDownloadURL: sourceAppDownloadURL
 		)
@@ -121,10 +124,15 @@ final class InstallationRegistry: ObservableObject {
 		} else {
 			return false
 		}
+
+		let installedBuildVersion = SourceAppProvenance.buildVersion(
+			fromSourceVersionID: metadata?.sourceVersionID
+		) ?? fallbackProvenance?.sourceAppBuildVersion
 		
 		return _upsert(
 			localBundleIdentifier: localBundleIdentifier,
 			installedVersion: installedVersion,
+			installedBuildVersion: installedBuildVersion,
 			appName: metadata?.sourceAppName ?? fallbackProvenance?.sourceAppName ?? app.name,
 			sourceRepositoryURL: sourceRepositoryURL,
 			sourceRepositoryIdentifier: metadata?.sourceRepositoryIdentifier ?? fallbackProvenance?.sourceRepositoryIdentifier,
@@ -150,6 +158,7 @@ final class InstallationRegistry: ObservableObject {
 		return _upsert(
 			localBundleIdentifier: bundleIdentifier,
 			installedVersion: version,
+			installedBuildVersion: provenance.sourceAppBuildVersion,
 			appName: provenance.sourceAppName,
 			sourceRepositoryURL: provenance.sourceRepositoryURL,
 			sourceRepositoryIdentifier: provenance.sourceRepositoryIdentifier,
@@ -161,7 +170,11 @@ final class InstallationRegistry: ObservableObject {
 	}
 	
 	@discardableResult
-	func updateInstalledVersion(recordID: String, version: String) -> Bool {
+	func updateInstalledVersion(
+		recordID: String,
+		version: String,
+		buildVersion: String? = nil
+	) -> Bool {
 		let normalizedVersion = version.trimmingCharacters(in: .whitespacesAndNewlines)
 		guard
 			!normalizedVersion.isEmpty,
@@ -171,8 +184,9 @@ final class InstallationRegistry: ObservableObject {
 		}
 		
 		records[index].installedVersion = normalizedVersion
+		records[index].installedBuildVersion = buildVersion
 		records[index].updatedAt = Date()
-		_clearIgnoredVersionIfNeeded(at: index)
+		records[index].ignoredRemoteVersion = nil
 		_save()
 		return true
 	}
@@ -255,6 +269,7 @@ final class InstallationRegistry: ObservableObject {
 	private func _upsert(
 		localBundleIdentifier: String,
 		installedVersion: String,
+		installedBuildVersion: String?,
 		appName: String?,
 		sourceRepositoryURL: URL,
 		sourceRepositoryIdentifier: String?,
@@ -279,6 +294,7 @@ final class InstallationRegistry: ObservableObject {
 			}
 			
 			records[index].installedVersion = installedVersion
+			records[index].installedBuildVersion = installedBuildVersion
 			records[index].appName = appName
 			records[index].sourceRepositoryURL = sourceRepositoryURL
 			records[index].sourceRepositoryIdentifier = sourceRepositoryIdentifier
@@ -288,13 +304,14 @@ final class InstallationRegistry: ObservableObject {
 			records[index].sourceAppDownloadURL = sourceAppDownloadURL
 			records[index].installedAt = now
 			records[index].updatedAt = now
-			_clearIgnoredVersionIfNeeded(at: index)
+			records[index].ignoredRemoteVersion = nil
 		} else {
 			records.append(
 				InstalledSourceAppRecord(
 					id: UUID().uuidString,
 					localBundleIdentifier: localBundleIdentifier,
 					installedVersion: installedVersion,
+					installedBuildVersion: installedBuildVersion,
 					appName: appName,
 					sourceRepositoryURL: sourceRepositoryURL,
 					sourceRepositoryIdentifier: sourceRepositoryIdentifier,
@@ -310,19 +327,6 @@ final class InstallationRegistry: ObservableObject {
 		
 		_save()
 		return true
-	}
-	
-	private func _clearIgnoredVersionIfNeeded(at index: Int) {
-		guard let ignoredVersion = records[index].ignoredRemoteVersion else {
-			return
-		}
-		let comparison = records[index].installedVersion.compare(
-			ignoredVersion,
-			options: [.numeric, .caseInsensitive]
-		)
-		if comparison != .orderedAscending {
-			records[index].ignoredRemoteVersion = nil
-		}
 	}
 	
 	private func _canonicalized(_ input: [InstalledSourceAppRecord]) -> [InstalledSourceAppRecord] {

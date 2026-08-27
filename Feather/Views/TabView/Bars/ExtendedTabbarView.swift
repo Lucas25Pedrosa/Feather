@@ -66,9 +66,6 @@ struct ExtendedTabbarView: View {
 			.hidden(horizontalSizeClass == .compact)
 		}
 		.tabViewStyle(.sidebarAdaptable)
-		// iOS 18+ (incluindo iOS 27) usa este ExtendedTabbarView.
-		// Monte o configurador aqui para ajustar o badge da barra realmente ativa.
-		.background(_TabBarBadgePositionConfigurator().frame(width: 0, height: 0))
 		.sheet(isPresented: $_isAddingPresenting) {
 			SourcesAddView()
 				.presentationDetents([.medium])

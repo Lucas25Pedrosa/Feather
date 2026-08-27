@@ -17,21 +17,21 @@ enum TabEnum: String, CaseIterable, Hashable {
 	
 	var title: String {
 		switch self {
-		case .sources:     	return .localized("Sources")
-		case .library: 		return .localized("Library")
-		case .updates: 		return .localized("Updates")
-		case .settings: 	return .localized("Settings")
-		case .certificates:	return .localized("Certificates")
+		case .sources:        return .localized("Sources")
+		case .library:        return .localized("Library")
+		case .updates:        return .localized("Updates")
+		case .settings:       return .localized("Settings")
+		case .certificates:   return .localized("Certificates")
 		}
 	}
 	
 	var icon: String {
 		switch self {
-		case .sources: 		return "globe.desk"
-		case .library: 		return "square.grid.2x2"
-		case .updates: 		return "arrow.triangle.2.circlepath"
-		case .settings: 	return "gearshape.2"
-		case .certificates: return "person.text.rectangle"
+		case .sources:        return "globe.desk"
+		case .library:        return "square.grid.2x2"
+		case .updates:        return "arrow.triangle.2.circlepath"
+		case .settings:       return "gearshape.2"
+		case .certificates:   return "person.text.rectangle"
 		}
 	}
 	
@@ -47,17 +47,27 @@ enum TabEnum: String, CaseIterable, Hashable {
 	}
 	
 	static var defaultTabs: [TabEnum] {
-		return [
+		[
 			.sources,
 			.library,
 			.updates,
 			.settings
 		]
 	}
+
+	/// Every top-level tab the user can order. Settings may be reordered but
+	/// TabPreferences always keeps it visible.
+	static var allMainTabs: [TabEnum] {
+		[
+			.sources,
+			.library,
+			.updates,
+			.certificates,
+			.settings
+		]
+	}
 	
 	static var customizableTabs: [TabEnum] {
-		return [
-			.certificates
-		]
+		allMainTabs.filter { $0 != .settings }
 	}
 }

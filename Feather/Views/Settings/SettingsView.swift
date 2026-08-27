@@ -15,14 +15,14 @@ import IDeviceSwift
 struct SettingsView: View {
 	@AppStorage("feather.selectedCert") private var _storedSelectedCert: Int = 0
 	@State private var _currentIcon: String? = UIApplication.shared.alternateIconName
-	
+
 	// MARK: Fetch
 	@FetchRequest(
 		entity: CertificatePair.entity(),
 		sortDescriptors: [NSSortDescriptor(keyPath: \CertificatePair.date, ascending: false)],
 		animation: .snappy
 	) private var _certificates: FetchedResults<CertificatePair>
-	
+
 	private var selectedCertificate: CertificatePair? {
 		guard
 			_storedSelectedCert >= 0,
@@ -35,7 +35,7 @@ struct SettingsView: View {
 
 	private let _donationsUrl = "https://github.com/sponsors/claration"
 	private let _githubUrl = "https://github.com/claration/Feather"
-	
+
 	// MARK: Body
 	var body: some View {
 		NBNavigationView(.localized("Settings")) {
@@ -43,9 +43,9 @@ struct SettingsView: View {
 				#if !NIGHTLY && !DEBUG
 					SettingsDonationCellView(site: _donationsUrl)
 				#endif
-				
+
 				_feedback()
-				
+
 				Section {
 					NavigationLink(destination: AppearanceView()) {
 						Label(.localized("Appearance"), systemImage: "paintbrush")
@@ -57,7 +57,7 @@ struct SettingsView: View {
 						Label(.localized("Tabs"), systemImage: "rectangle.3.group")
 					}
 				}
-				
+
 				NBSection(.localized("Certificates")) {
 					if let cert = selectedCertificate {
 						CertificatesCellView(cert: cert)
@@ -72,7 +72,7 @@ struct SettingsView: View {
 				} footer: {
 					Text(.localized("Add and manage certificates used for signing applications."))
 				}
-				
+
 				NBSection(.localized("Features")) {
 					NavigationLink(destination: ConfigurationView()) {
 						Label(.localized("Signing Options"), systemImage: "signature")
@@ -83,15 +83,18 @@ struct SettingsView: View {
 					NavigationLink(destination: InstallationView()) {
 						Label(.localized("Installation"), systemImage: "arrow.down.circle")
 					}
+					NavigationLink(destination: TweakCatalogView()) {
+						Label("Tweaks e atualizações", systemImage: "shippingbox")
+					}
 					NavigationLink(destination: BackupView()) {
 						Label(.localized("Backup & Restore"), systemImage: "icloud")
 					}
 				} footer: {
 					Text(.localized("Configure signing, installation, archives, and encrypted update-history backups."))
 				}
-				
+
 				_directories()
-				
+
 				Section {
 					NavigationLink(destination: ResetView()) {
 						Label(.localized("Reset"), systemImage: "trash")
@@ -116,16 +119,16 @@ extension SettingsView {
 					FRAppIconView(size: 23)
 				}
 			}
-			
+
 			Button(.localized("Submit Feedback"), systemImage: "safari") {
 				let bugAction: UIAlertAction = .init(title: .localized("Bug Report"), style: .default) { _ in
 					UIApplication.open(_makeGitHubIssueURL(url: _githubUrl))
 				}
-				
+
 				let chooseAction: UIAlertAction = .init(title: .localized("Other"), style: .default) { _ in
 					UIApplication.open(URL(string: "\(_githubUrl)/issues/new/choose")!)
 				}
-				
+
 				UIAlertController.showAlertWithCancel(
 					title: .localized("Submit Feedback"),
 					message: nil,
@@ -139,7 +142,7 @@ extension SettingsView {
 			Text(.localized("If any issues occur within the app please report it via the GitHub repository. When submitting an issue, make sure to submit detailed information."))
 		}
 	}
-	
+
 	@ViewBuilder
 	private func _directories() -> some View {
 		NBSection(.localized("Misc")) {
@@ -156,10 +159,10 @@ extension SettingsView {
 			Text(.localized("All of the apps files are contained in the documents directory, here are some quick links to these."))
 		}
 	}
-	
+
 	private func _makeGitHubIssueURL(url: String) -> String {
 		var configurationSection = "### App Configuration:\n"
-		
+
 		switch UserDefaults.standard.integer(forKey: "Feather.installationMethod") {
 		case 0: // Server
 			let serverMethod = UserDefaults.standard.integer(forKey: "Feather.serverMethod")
@@ -177,25 +180,25 @@ extension SettingsView {
 		default:
 			configurationSection += "- Install method: `Unknown`\n"
 		}
-		
+
 		let body = """
 		### Device Information
 		- Device: `\(MobileGestalt().getStringForName("PhysicalHardwareNameString") ?? "Unknown")`
 		- iOS Version: `\(UIDevice.current.systemVersion)`
 		- App Version: `\(Bundle.main.version)`
-		
+
 		\(configurationSection)
-		
+
 		### Issue Description
 		<!-- Describe your issue here -->
-		
+
 		### Steps to Reproduce
-		1. 
-		2. 
-		3. 
-		
+		1.
+		2.
+		3.
+
 		### Expected Behavior
-		
+
 		### Actual Behavior
 		"""
 		let encodedTitle = "[Bug] replace this with a descriptive title "

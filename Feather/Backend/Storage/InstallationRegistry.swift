@@ -12,12 +12,22 @@ extension Notification.Name {
 	static let featherInstallationRegistryChanged = Notification.Name("Feather.installationRegistryChanged")
 }
 
+enum InstalledPackageMetadataSource: String, Codable {
+	case manual
+	case source
+}
+
 struct InstalledSourceAppRecord: Codable, Equatable, Identifiable {
 	let id: String
 	let localBundleIdentifier: String
 	var installedVersion: String
 	// Optional so registries created by Feather 3.0 remain decodable.
 	var installedBuildVersion: String? = nil
+	// Optional Beta 2 package metadata. Missing keys remain compatible with Beta 1 backups.
+	var installedPackageName: String? = nil
+	var installedPackageVersion: String? = nil
+	var installedPackageRevision: String? = nil
+	var packageMetadataSource: InstalledPackageMetadataSource? = nil
 	var appName: String?
 	var sourceRepositoryURL: URL
 	var sourceRepositoryIdentifier: String?
@@ -27,11 +37,11 @@ struct InstalledSourceAppRecord: Codable, Equatable, Identifiable {
 	var sourceAppDownloadURL: URL?
 	var installedAt: Date
 	var updatedAt: Date
-	
+
 	// Optional so registries created by older Feather builds remain decodable.
 	var ignoredRemoteVersion: String? = nil
 	var updatesDisabled: Bool? = nil
-	
+
 	var sourceProvenance: SourceAppProvenance {
 		SourceAppProvenance(
 			sourceRepositoryURL: sourceRepositoryURL,
@@ -45,7 +55,19 @@ struct InstalledSourceAppRecord: Codable, Equatable, Identifiable {
 			sourceAppDownloadURL: sourceAppDownloadURL
 		)
 	}
-	
+
+	var installedPackageLabel: String? {
+		guard
+			let name = installedPackageName?.trimmingCharacters(in: .whitespacesAndNewlines),
+			!name.isEmpty,
+			let version = installedPackageVersion?.trimmingCharacters(in: .whitespacesAndNewlines),
+			!version.isEmpty
+		else {
+			return nil
+		}
+		return "\(name) \(version)"
+	}
+
 	var hasHiddenUpdates: Bool {
 		updatesDisabled == true || ignoredRemoteVersion != nil
 	}
@@ -53,11 +75,11 @@ struct InstalledSourceAppRecord: Codable, Equatable, Identifiable {
 
 final class InstallationRegistry: ObservableObject {
 	static let shared = InstallationRegistry()
-	
+
 	private let _fileManager = FileManager.default
 	private let _fileURL: URL
 	@Published private(set) var records: [InstalledSourceAppRecord] = []
-	
+
 	private init() {
 		let applicationSupport = _fileManager.urls(
 			for: .applicationSupportDirectory,
@@ -65,20 +87,20 @@ final class InstallationRegistry: ObservableObject {
 		).first!
 		let directory = applicationSupport
 			.appendingPathComponent("Feather", isDirectory: true)
-		
+
 		try? _fileManager.createDirectory(
 			at: directory,
 			withIntermediateDirectories: true
 		)
-		
+
 		_fileURL = directory.appendingPathComponent(
 			"InstalledSourceApps.json",
 			isDirectory: false
 		)
-		
+
 		_load()
 	}
-	
+
 	var hiddenRecords: [InstalledSourceAppRecord] {
 		records
 			.filter(\.hasHiddenUpdates)
@@ -88,7 +110,7 @@ final class InstallationRegistry: ObservableObject {
 					== .orderedAscending
 			}
 	}
-	
+
 	@discardableResult
 	func recordInstallation(
 		of app: AppInfoPresentable,
@@ -100,16 +122,16 @@ final class InstallationRegistry: ObservableObject {
 		else {
 			return false
 		}
-		
+
 		let metadata = app.uuid.flatMap { Storage.shared.sourceMetadata(for: $0) }
-		
+
 		guard
 			let sourceRepositoryURL = metadata?.sourceRepositoryURL ?? fallbackProvenance?.sourceRepositoryURL,
 			let sourceAppIdentifier = metadata?.sourceAppIdentifier ?? fallbackProvenance?.sourceAppIdentifier
 		else {
 			return false
 		}
-		
+
 		// For source-linked installs, provenance describes the IPA that was actually
 		// downloaded and signed. Prefer that over AppInfoPresentable.version because
 		// Core Data / view state may still expose the previous version immediately
@@ -128,7 +150,7 @@ final class InstallationRegistry: ObservableObject {
 		let installedBuildVersion = SourceAppProvenance.buildVersion(
 			fromSourceVersionID: metadata?.sourceVersionID
 		) ?? fallbackProvenance?.sourceAppBuildVersion
-		
+
 		return _upsert(
 			localBundleIdentifier: localBundleIdentifier,
 			installedVersion: installedVersion,
@@ -139,10 +161,11 @@ final class InstallationRegistry: ObservableObject {
 			sourceRepositoryName: metadata?.sourceRepositoryName ?? fallbackProvenance?.sourceRepositoryName,
 			sourceAppIdentifier: sourceAppIdentifier,
 			sourceAppVersionDate: metadata?.sourceAppVersionDate ?? fallbackProvenance?.sourceAppVersionDate,
-			sourceAppDownloadURL: metadata?.sourceAppDownloadURL ?? fallbackProvenance?.sourceAppDownloadURL
+			sourceAppDownloadURL: metadata?.sourceAppDownloadURL ?? fallbackProvenance?.sourceAppDownloadURL,
+			derivePackageMetadata: true
 		)
 	}
-	
+
 	@discardableResult
 	func recordManualInstallation(
 		localBundleIdentifier: String,
@@ -154,7 +177,7 @@ final class InstallationRegistry: ObservableObject {
 		guard !bundleIdentifier.isEmpty, !version.isEmpty else {
 			return false
 		}
-		
+
 		return _upsert(
 			localBundleIdentifier: bundleIdentifier,
 			installedVersion: version,
@@ -165,10 +188,11 @@ final class InstallationRegistry: ObservableObject {
 			sourceRepositoryName: provenance.sourceRepositoryName,
 			sourceAppIdentifier: provenance.sourceAppIdentifier,
 			sourceAppVersionDate: provenance.sourceAppVersionDate,
-			sourceAppDownloadURL: provenance.sourceAppDownloadURL
+			sourceAppDownloadURL: provenance.sourceAppDownloadURL,
+			derivePackageMetadata: false
 		)
 	}
-	
+
 	@discardableResult
 	func updateInstalledVersion(
 		recordID: String,
@@ -182,7 +206,7 @@ final class InstallationRegistry: ObservableObject {
 		else {
 			return false
 		}
-		
+
 		records[index].installedVersion = normalizedVersion
 		records[index].installedBuildVersion = buildVersion
 		records[index].updatedAt = Date()
@@ -190,7 +214,50 @@ final class InstallationRegistry: ObservableObject {
 		_save()
 		return true
 	}
-	
+
+	@discardableResult
+	func setInstalledPackage(
+		recordID: String,
+		name: String,
+		version: String,
+		revision: String?,
+		source: InstalledPackageMetadataSource
+	) -> Bool {
+		let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+		let normalizedVersion = version.trimmingCharacters(in: .whitespacesAndNewlines)
+		guard
+			!normalizedName.isEmpty,
+			!normalizedVersion.isEmpty,
+			let index = records.firstIndex(where: { $0.id == recordID })
+		else {
+			return false
+		}
+		let normalizedRevision = revision?.trimmingCharacters(in: .whitespacesAndNewlines)
+		records[index].installedPackageName = normalizedName
+		records[index].installedPackageVersion = normalizedVersion
+		records[index].installedPackageRevision = normalizedRevision?.isEmpty == false ? normalizedRevision : nil
+		records[index].packageMetadataSource = source
+		records[index].updatedAt = Date()
+		records[index].ignoredRemoteVersion = nil
+		_save()
+		return true
+	}
+
+	@discardableResult
+	func clearInstalledPackage(recordID: String) -> Bool {
+		guard let index = records.firstIndex(where: { $0.id == recordID }) else {
+			return false
+		}
+		records[index].installedPackageName = nil
+		records[index].installedPackageVersion = nil
+		records[index].installedPackageRevision = nil
+		records[index].packageMetadataSource = nil
+		records[index].updatedAt = Date()
+		records[index].ignoredRemoteVersion = nil
+		_save()
+		return true
+	}
+
 	@discardableResult
 	func remove(recordID: String) -> Bool {
 		let previousCount = records.count
@@ -201,45 +268,45 @@ final class InstallationRegistry: ObservableObject {
 		_save()
 		return true
 	}
-	
+
 	@discardableResult
 	func ignoreUpdate(recordID: String, remoteVersion: String) -> Bool {
 		guard let index = records.firstIndex(where: { $0.id == recordID }) else {
 			return false
 		}
-		
+
 		records[index].ignoredRemoteVersion = remoteVersion
 		records[index].updatedAt = Date()
 		_save()
 		return true
 	}
-	
+
 	@discardableResult
 	func disableUpdates(recordID: String) -> Bool {
 		guard let index = records.firstIndex(where: { $0.id == recordID }) else {
 			return false
 		}
-		
+
 		records[index].updatesDisabled = true
 		records[index].ignoredRemoteVersion = nil
 		records[index].updatedAt = Date()
 		_save()
 		return true
 	}
-	
+
 	@discardableResult
 	func showUpdates(recordID: String) -> Bool {
 		guard let index = records.firstIndex(where: { $0.id == recordID }) else {
 			return false
 		}
-		
+
 		records[index].updatesDisabled = nil
 		records[index].ignoredRemoteVersion = nil
 		records[index].updatedAt = Date()
 		_save()
 		return true
 	}
-	
+
 	func clearStaleIgnoredVersion(recordID: String, currentRemoteVersion: String) {
 		guard
 			let index = records.firstIndex(where: { $0.id == recordID }),
@@ -248,23 +315,23 @@ final class InstallationRegistry: ObservableObject {
 		else {
 			return
 		}
-		
+
 		records[index].ignoredRemoteVersion = nil
 		records[index].updatedAt = Date()
 		_save()
 	}
-	
+
 	func restoreBackupRecords(_ restoredRecords: [InstalledSourceAppRecord]) {
 		records = _canonicalized(restoredRecords)
 		_save(notifyBackup: false)
 	}
-	
+
 	func reset() {
 		records.removeAll()
 		try? _fileManager.removeItem(at: _fileURL)
 		NotificationCenter.default.post(name: .featherInstallationRegistryChanged, object: nil)
 	}
-	
+
 	@discardableResult
 	private func _upsert(
 		localBundleIdentifier: String,
@@ -276,23 +343,24 @@ final class InstallationRegistry: ObservableObject {
 		sourceRepositoryName: String?,
 		sourceAppIdentifier: String,
 		sourceAppVersionDate: Date?,
-		sourceAppDownloadURL: URL?
+		sourceAppDownloadURL: URL?,
+		derivePackageMetadata: Bool
 	) -> Bool {
 		let now = Date()
 		let matchingRecordIDs = records
 			.filter { $0.localBundleIdentifier == localBundleIdentifier }
 			.sorted { $0.updatedAt > $1.updatedAt }
 			.map(\.id)
-		
+
 		if let canonicalID = matchingRecordIDs.first {
 			records.removeAll { record in
 				matchingRecordIDs.dropFirst().contains(record.id)
 			}
-			
+
 			guard let index = records.firstIndex(where: { $0.id == canonicalID }) else {
 				return false
 			}
-			
+
 			records[index].installedVersion = installedVersion
 			records[index].installedBuildVersion = installedBuildVersion
 			records[index].appName = appName
@@ -324,11 +392,51 @@ final class InstallationRegistry: ObservableObject {
 				)
 			)
 		}
-		
+
+		if
+			derivePackageMetadata,
+			let package = Self._packageMetadata(from: sourceAppDownloadURL),
+			let index = records.firstIndex(where: { $0.localBundleIdentifier == localBundleIdentifier })
+		{
+			records[index].installedPackageName = package.name
+			records[index].installedPackageVersion = package.version
+			records[index].installedPackageRevision = package.revision
+			records[index].packageMetadataSource = .source
+		}
+
 		_save()
 		return true
 	}
-	
+
+	private static func _packageMetadata(
+		from url: URL?
+	) -> (name: String, version: String, revision: String?)? {
+		guard let url else { return nil }
+		let name = _queryValue(in: url, keys: ["tweak", "tweakName"])
+		let version = _queryValue(in: url, keys: ["tweakVersion"])
+		guard let name, let version else { return nil }
+		let revision = _queryValue(
+			in: url,
+			keys: ["packageRevision", "featherRevision", "pkgRevision"]
+		)
+		return (name, version, revision)
+	}
+
+	private static func _queryValue(in url: URL, keys: [String]) -> String? {
+		guard let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else {
+			return nil
+		}
+		for key in keys {
+			if let value = queryItems.first(where: {
+				$0.name.compare(key, options: [.caseInsensitive]) == .orderedSame
+			})?.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+			!value.isEmpty {
+				return value
+			}
+		}
+		return nil
+	}
+
 	private func _canonicalized(_ input: [InstalledSourceAppRecord]) -> [InstalledSourceAppRecord] {
 		var canonical: [String: InstalledSourceAppRecord] = [:]
 		for record in input {
@@ -342,7 +450,7 @@ final class InstallationRegistry: ObservableObject {
 		}
 		return Array(canonical.values)
 	}
-	
+
 	private func _load() {
 		guard
 			let data = try? Data(contentsOf: _fileURL),
@@ -353,18 +461,18 @@ final class InstallationRegistry: ObservableObject {
 		else {
 			return
 		}
-		
+
 		records = _canonicalized(decoded)
 	}
-	
+
 	private func _save(notifyBackup: Bool = true) {
 		let encoder = JSONEncoder()
 		encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-		
+
 		guard let data = try? encoder.encode(records) else {
 			return
 		}
-		
+
 		do {
 			try data.write(to: _fileURL, options: .atomic)
 			if notifyBackup {

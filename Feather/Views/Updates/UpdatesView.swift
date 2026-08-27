@@ -21,33 +21,33 @@ struct UpdatesView: View {
 	@State private var _updateSigningIdentity: UpdateSigningIdentity?
 	@State private var _signedUUIDsBeforeSigning: Set<String> = []
 	@State private var _isHiddenUpdatesPresenting = false
-	
+
 	@FetchRequest(
 		entity: AltSource.entity(),
 		sortDescriptors: [NSSortDescriptor(keyPath: \AltSource.name, ascending: true)],
 		animation: .snappy
 	) private var _sources: FetchedResults<AltSource>
-	
+
 	@FetchRequest(
 		entity: Imported.entity(),
 		sortDescriptors: [NSSortDescriptor(keyPath: \Imported.date, ascending: false)],
 		animation: .snappy
 	) private var _importedApps: FetchedResults<Imported>
-	
+
 	@FetchRequest(
 		entity: Signed.entity(),
 		sortDescriptors: [NSSortDescriptor(keyPath: \Signed.date, ascending: false)],
 		animation: .snappy
 	) private var _signedApps: FetchedResults<Signed>
-	
+
 	private var _updateEntries: [AppUpdate] {
 		updateManager.availableUpdates
 	}
-	
+
 	private var _updateCount: Int {
 		_updateEntries.count
 	}
-	
+
 	var body: some View {
 		NBNavigationView(.localized("Updates")) {
 			NBListAdaptable {
@@ -68,7 +68,7 @@ struct UpdatesView: View {
 						}
 					}
 				}
-				
+
 				if _updateCount > 0 {
 					NBSection(
 						.localized("Available Updates"),
@@ -135,13 +135,13 @@ struct UpdatesView: View {
 			}
 		}
 	}
-	
+
 	private func _checkForUpdates() async {
 		await updateManager.checkForUpdates(
 			sources: Array(_sources)
 		)
 	}
-	
+
 	private func _openSigningView(for uuid: String) {
 		Task { @MainActor in
 			for _ in 0..<8 {
@@ -157,7 +157,7 @@ struct UpdatesView: View {
 							sourceAppVersion: metadata.sourceAppVersion
 						)
 					}
-					
+
 					_signedUUIDsBeforeSigning = Set(_signedApps.compactMap { $0.uuid })
 					_selectedSigningAppPresenting = AnyApp(base: imported)
 					return
@@ -166,13 +166,13 @@ struct UpdatesView: View {
 			}
 		}
 	}
-	
+
 	private func _handleUpdateSigningDismissal() {
 		guard let identity = _updateSigningIdentity else {
 			_resetUpdateSigningState()
 			return
 		}
-		
+
 		let previousSignedUUIDs = _signedUUIDsBeforeSigning
 		Task { @MainActor in
 			for _ in 0..<8 {
@@ -186,13 +186,13 @@ struct UpdatesView: View {
 					else {
 						return false
 					}
-					
+
 					if let expectedVersion = identity.sourceAppVersion {
 						return metadata.sourceAppVersion == expectedVersion
 					}
 					return true
 				}
-				
+
 				if didSignUpdate {
 					NotificationCenter.default.post(
 						name: Notification.Name("Feather.selectTab"),
@@ -201,14 +201,14 @@ struct UpdatesView: View {
 					_resetUpdateSigningState()
 					return
 				}
-				
+
 				try? await Task.sleep(nanoseconds: 100_000_000)
 			}
-			
+
 			_resetUpdateSigningState()
 		}
 	}
-	
+
 	private func _resetUpdateSigningState() {
 		_updateSigningIdentity = nil
 		_signedUUIDsBeforeSigning.removeAll()
@@ -220,17 +220,17 @@ private struct UpdateCellView: View {
 	@ObservedObject private var downloadManager = DownloadManager.shared
 	@ObservedObject private var updateManager = UpdateManager.shared
 	@State private var _isChangelogExpanded = false
-	
+
 	let update: AppUpdate
-	
+
 	private var _downloadID: String {
 		"FeatherManualDownload_Update_\(update.localUUID)"
 	}
-	
+
 	private var _isDownloading: Bool {
 		downloadManager.getDownload(by: _downloadID) != nil
 	}
-	
+
 	private var _subtitle: String {
 		if update.isPackageOnlyUpdate {
 			if
@@ -241,6 +241,13 @@ private struct UpdateCellView: View {
 				return "\(localLabel) → \(remoteLabel)"
 			}
 			if let remoteLabel = update.remotePackageLabel {
+				if
+					let localRevision = update.localPackageRevision,
+					let remoteRevision = update.remotePackageRevision,
+					localRevision.compare(remoteRevision, options: [.caseInsensitive]) != .orderedSame
+				{
+					return "\(remoteLabel) • Nova revisão disponível"
+				}
 				return remoteLabel
 			}
 			if
@@ -257,7 +264,7 @@ private struct UpdateCellView: View {
 				return "\(release) • pkg \(remoteRevision)"
 			}
 		}
-		
+
 		let local = _releaseText(
 			version: update.localVersion ?? .localized("Unknown"),
 			build: update.localBuildVersion
@@ -268,64 +275,74 @@ private struct UpdateCellView: View {
 		)
 		return "\(local) → \(remote)"
 	}
-	
+
 	private var _changelog: String? {
 		guard let value = update.changelog?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
 			return nil
 		}
 		return value
 	}
-	
+
 	var body: some View {
 		let isRegular = horizontalSizeClass != .compact
-		
+
 		VStack(alignment: .leading, spacing: 10) {
-			HStack(spacing: 18) {
+			HStack(alignment: .top, spacing: 18) {
 				UpdateAppIconView(url: update.iconURL)
-				
-				NBTitleWithSubtitleView(
-					title: update.appName,
-					subtitle: _subtitle,
-					linelimit: 0
-				)
-				
-				Button {
-					_startUpdateDownload()
-				} label: {
-					Group {
-						if _isDownloading {
-							ProgressView()
-								.frame(minWidth: 48)
-						} else {
-							Text(.localized("Update"))
-								.lineLimit(1)
-								.font(.headline.bold())
-								.foregroundStyle(Color.accentColor)
-								.padding(.horizontal, 18)
-								.padding(.vertical, 6)
-								.background(Color(uiColor: .quaternarySystemFill))
-								.clipShape(Capsule())
+
+				VStack(alignment: .leading, spacing: 8) {
+					HStack(spacing: 8) {
+						Text(update.appName)
+							.font(.headline)
+							.lineLimit(1)
+							.layoutPriority(1)
+
+						Spacer(minLength: 8)
+
+						Button {
+							_startUpdateDownload()
+						} label: {
+							Group {
+								if _isDownloading {
+									ProgressView()
+										.frame(minWidth: 48)
+								} else {
+									Text(.localized("Update"))
+										.lineLimit(1)
+										.font(.headline.bold())
+										.foregroundStyle(Color.accentColor)
+										.padding(.horizontal, 18)
+										.padding(.vertical, 6)
+										.background(Color(uiColor: .quaternarySystemFill))
+										.clipShape(Capsule())
+								}
+							}
 						}
+						.buttonStyle(.borderless)
+						.disabled(_isDownloading)
+
+						Menu {
+							Button(.localized("Hide This Update"), systemImage: "eye.slash") {
+								updateManager.hideCurrentUpdate(update)
+							}
+							Button(.localized("Hide Updates for This App"), systemImage: "bell.slash") {
+								updateManager.hideUpdatesForApp(update)
+							}
+						} label: {
+							Image(systemName: "ellipsis")
+								.frame(width: 24, height: 32)
+						}
+						.buttonStyle(.borderless)
 					}
+
+					Text(_subtitle)
+						.font(.subheadline)
+						.foregroundStyle(.secondary)
+						.lineLimit(2)
+						.fixedSize(horizontal: false, vertical: true)
 				}
-				.buttonStyle(.borderless)
-				.disabled(_isDownloading)
-				
-				Menu {
-					Button(.localized("Hide This Update"), systemImage: "eye.slash") {
-						updateManager.hideCurrentUpdate(update)
-					}
-					
-					Button(.localized("Hide Updates for This App"), systemImage: "bell.slash") {
-						updateManager.hideUpdatesForApp(update)
-					}
-				} label: {
-					Image(systemName: "ellipsis")
-						.frame(width: 24, height: 32)
-				}
-				.buttonStyle(.borderless)
 			}
-			
+
 			if let changelog = _changelog {
 				Text(changelog)
 					.font(.footnote)
@@ -349,12 +366,12 @@ private struct UpdateCellView: View {
 				: nil
 		)
 	}
-	
+
 	private func _releaseText(version: String, build: String?) -> String {
 		guard let build, !build.isEmpty else { return version }
 		return "\(version) (\(build))"
 	}
-	
+
 	private func _startUpdateDownload() {
 		_ = downloadManager.startDownload(
 			from: update.downloadURL,
@@ -368,13 +385,13 @@ private struct HiddenUpdatesView: View {
 	@Environment(\.dismiss) private var dismiss
 	@ObservedObject private var registry = InstallationRegistry.shared
 	@ObservedObject private var updateManager = UpdateManager.shared
-	
+
 	let onChanged: () -> Void
-	
+
 	private var _records: [InstalledSourceAppRecord] {
 		registry.hiddenRecords
 	}
-	
+
 	var body: some View {
 		NBNavigationView(.localized("Hidden Updates")) {
 			NBListAdaptable {
@@ -388,14 +405,14 @@ private struct HiddenUpdatesView: View {
 								VStack(alignment: .leading, spacing: 3) {
 									Text(record.appName ?? record.localBundleIdentifier)
 										.font(.body)
-									
+
 									Text(_subtitle(for: record))
 										.font(.caption)
 										.foregroundStyle(.secondary)
 								}
-								
+
 								Spacer()
-								
+
 								Button(.localized("Show Updates")) {
 									updateManager.showUpdatesForApp(recordID: record.id)
 									onChanged()
@@ -427,7 +444,7 @@ private struct HiddenUpdatesView: View {
 			}
 		}
 	}
-	
+
 	private func _subtitle(for record: InstalledSourceAppRecord) -> String {
 		if record.updatesDisabled == true {
 			return .localized("All updates hidden")
@@ -441,7 +458,7 @@ private struct HiddenUpdatesView: View {
 
 private struct UpdateAppIconView: View {
 	let url: URL?
-	
+
 	var body: some View {
 		AsyncImage(url: url) { phase in
 			switch phase {

@@ -16,6 +16,7 @@ struct SourceAppProvenance: Equatable {
 	let sourceAppIdentifier: String
 	let sourceAppName: String?
 	let sourceAppVersion: String?
+	let sourceAppBuildVersion: String?
 	let sourceAppVersionDate: Date?
 	let sourceAppDownloadURL: URL?
 	
@@ -24,8 +25,19 @@ struct SourceAppProvenance: Equatable {
 			sourceRepositoryIdentifier ?? sourceRepositoryURL.absoluteString,
 			sourceAppIdentifier,
 			sourceAppVersion ?? "",
+			sourceAppBuildVersion ?? "",
 			sourceAppDownloadURL?.absoluteString ?? ""
 		].joined(separator: "|")
+	}
+
+	/// Older 3.0 metadata stored four components and had no build value.
+	/// 3.1 adds build as the fourth component without requiring a Core Data migration.
+	static func buildVersion(fromSourceVersionID value: String?) -> String? {
+		guard let value else { return nil }
+		let components = value.split(separator: "|", omittingEmptySubsequences: false)
+		guard components.count >= 5 else { return nil }
+		let build = String(components[3])
+		return build.isEmpty ? nil : build
 	}
 }
 
@@ -53,10 +65,13 @@ extension SourceAppProvenance {
 		self.sourceRepositoryName = repository.name
 		self.sourceAppIdentifier = appIdentifier
 		self.sourceAppName = app.currentName
-		let appVersion = version?.version ?? app.currentVersion
-		let appVersionDate = version?.date?.date ?? app.currentDate?.date
-		let appDownloadURL = version?.downloadURL ?? app.currentDownloadUrl
+		let resolvedVersion = version ?? app.currentAppVersion
+		let appVersion = resolvedVersion?.version ?? app.currentVersion
+		let appBuildVersion = resolvedVersion?.build
+		let appVersionDate = resolvedVersion?.date?.date ?? app.currentDate?.date
+		let appDownloadURL = resolvedVersion?.downloadURL ?? app.currentDownloadUrl
 		self.sourceAppVersion = appVersion
+		self.sourceAppBuildVersion = appBuildVersion
 		self.sourceAppVersionDate = appVersionDate
 		self.sourceAppDownloadURL = appDownloadURL
 	}

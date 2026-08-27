@@ -1,0 +1,239 @@
+# Feather 3.1 Beta 5 build pipeline
+name: Build Feather Beta 5
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - beta/3.1.0-beta5
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: beta/3.1.0-beta5
+          submodules: recursive
+
+      - name: Corrigir exclusividade do BackupManager na Beta
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/fix_backup_beta.py
+
+          if ! git diff --quiet -- Feather/Backend/Backup/BackupManager.swift; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add Feather/Backend/Backup/BackupManager.swift
+            git commit -m "[skip ci] Fix BackupManager URL normalization exclusivity"
+            git push origin HEAD:beta/3.1.0-beta5
+          fi
+
+      - name: Aplicar correção do badge da Beta 5
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/apply_beta5.py
+
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add \
+              Feather/Views/TabView/Bars/TabbarView.swift \
+              Feather/Views/TabView/Bars/ExtendedTabbarView.swift
+            git commit -m "[skip ci] Apply Feather 3.1 Beta 5 active tab badge fix"
+            git push origin HEAD:beta/3.1.0-beta5
+          fi
+
+      - name: Selecionar Xcode 26.2 do build validado
+        run: |
+          set -euo pipefail
+
+          XCODE_PATH=""
+          for candidate in /Applications/Xcode_26.2.app /Applications/Xcode_26.2.0.app
+          do
+            if [ -d "$candidate" ]; then
+              XCODE_PATH="$candidate"
+              break
+            fi
+          done
+
+          if [ -z "$XCODE_PATH" ]; then
+            echo 'ERRO: Xcode 26.2 não está instalado neste runner.'
+            ls -1 /Applications | grep '^Xcode' || true
+            exit 1
+          fi
+
+          sudo xcode-select -s "$XCODE_PATH"
+          test "$(xcodebuild -version | sed -n '1p')" = "Xcode 26.2"
+          test "$(xcodebuild -version | sed -n '2p')" = "Build version 17C52"
+          xcodebuild -version
+
+      - name: Travar dependências oficiais
+        run: |
+          set -euo pipefail
+
+          RESOLVED='Feather.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'
+          test -f "$RESOLVED"
+
+          python3 <<'PY'
+          from pathlib import Path
+          import json
+
+          resolved = Path("Feather.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved")
+          data = json.loads(resolved.read_text(encoding="utf-8"))
+          pins = {item["identity"]: item["state"].get("version") for item in data["pins"]}
+          expected = {
+              "apikit": "5.4.0",
+              "async-http-client": "1.25.2",
+              "nuke": "12.8.0",
+              "swift-nio": "2.82.1",
+              "swift-system": "1.4.2",
+              "vapor": "4.104.0",
+              "zip": "2.1.2",
+          }
+          for package, version in expected.items():
+              actual = pins.get(package)
+              if actual != version:
+                  raise SystemExit(f"ERRO: {package}: esperado {version}, encontrado {actual}.")
+          print(f"Package.resolved carregado com {len(data['pins'])} dependências.")
+          PY
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path("Makefile")
+          text = path.read_text(encoding="utf-8")
+          flag = "-disableAutomaticPackageResolution"
+          if flag not in text:
+              needle = "\t\t-skipPackagePluginValidation \\\n"
+              if needle not in text:
+                  raise SystemExit("ERRO: ponto de inserção para travar os pacotes não encontrado.")
+              text = text.replace(needle, needle + "\t\t-disableAutomaticPackageResolution \\\n", 1)
+              path.write_text(text, encoding="utf-8")
+          if flag not in path.read_text(encoding="utf-8"):
+              raise SystemExit("ERRO: -disableAutomaticPackageResolution não foi aplicado.")
+          PY
+
+      - name: Configurar Beta 5 e manter NIGHTLY interno
+        run: |
+          set -euo pipefail
+
+          python3 <<'PY'
+          from pathlib import Path
+          import re
+
+          project = Path("Feather.xcodeproj/project.pbxproj")
+          text = project.read_text(encoding="utf-8")
+          target_configs = {
+              "3379C1CE2DA869A3004372DA": "Debug",
+              "3379C1CF2DA869A3004372DA": "Release",
+          }
+
+          for config_id, config_name in target_configs.items():
+              pattern = re.compile(
+                  rf"({re.escape(config_id)} /\* {config_name} \*/ = \{{.*?buildSettings = \{{\n)(.*?)(\n\t\t\t\}};\n\t\t\tname = {config_name};)",
+                  re.DOTALL,
+              )
+              match = pattern.search(text)
+              if not match:
+                  raise SystemExit(f"ERRO: configuração {config_name} não encontrada.")
+              block = match.group(2)
+              block, build_count = re.subn(
+                  r'(^\s*CURRENT_PROJECT_VERSION\s*=\s*)[^;]+;',
+                  r'\g<1>30105;',
+                  block,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+              if build_count != 1:
+                  raise SystemExit(f"ERRO: build não encontrado em {config_name}.")
+              block, name_count = re.subn(
+                  r'(^\s*INFOPLIST_KEY_CFBundleDisplayName\s*=\s*)[^;]+;',
+                  r'\g<1>"Feather Beta";',
+                  block,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+              if name_count != 1:
+                  raise SystemExit(f"ERRO: nome do app não encontrado em {config_name}.")
+              condition_pattern = re.compile(
+                  r'(^\s*SWIFT_ACTIVE_COMPILATION_CONDITIONS\s*=\s*)(".*?"|[^;]*)(;)',
+                  re.MULTILINE,
+              )
+              condition_match = condition_pattern.search(block)
+              if not condition_match:
+                  raise SystemExit(f"ERRO: condições Swift não encontradas em {config_name}.")
+              raw = condition_match.group(2).strip()
+              value = raw[1:-1] if raw.startswith('"') and raw.endswith('"') else raw
+              tokens = [token for token in value.split() if token]
+              if "NIGHTLY" not in tokens:
+                  tokens.append("NIGHTLY")
+              replacement = condition_match.group(1) + f'"{" ".join(tokens)}"' + condition_match.group(3)
+              block = block[:condition_match.start()] + replacement + block[condition_match.end():]
+              text = text[:match.start(2)] + block + text[match.end(2):]
+
+          project.write_text(text, encoding="utf-8")
+          PY
+
+          grep -q '#if !NIGHTLY && !DEBUG' Feather/Views/Settings/SettingsView.swift
+          grep -q 'FEATHER_PROJECT_VERSION=3.1.0' Feather.xcconfig
+          grep -q 'FEATHER_PRODUCT_BUNDLE_IDENTIFIER=com.featherbeta.lucas' Feather.xcconfig
+
+      - name: Compilar Feather 3.1 Beta 5 para iPhone
+        run: |
+          set -o pipefail
+          make iphoneos 2>&1 | tee feather-build.log
+
+      - name: Publicar log da compilação
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Feather-3.1-Beta-5-build-log
+          path: feather-build.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Validar IPA Beta 5 gerado
+        run: |
+          set -euo pipefail
+          test -f packages/Feather.ipa
+          unzip -t packages/Feather.ipa >/dev/null
+
+          rm -rf /tmp/feather-beta5-validation
+          mkdir -p /tmp/feather-beta5-validation
+          unzip -q packages/Feather.ipa -d /tmp/feather-beta5-validation
+
+          APP_PLIST=$(find /tmp/feather-beta5-validation/Payload -maxdepth 2 -name Info.plist -print -quit)
+          test -n "$APP_PLIST"
+
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PLIST")
+          BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PLIST")
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PLIST")
+          DISPLAY_NAME=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP_PLIST")
+
+          echo "Versão: $VERSION"
+          echo "Build: $BUILD"
+          echo "Bundle ID: $BUNDLE_ID"
+          echo "Nome: $DISPLAY_NAME"
+
+          test "$VERSION" = "3.1.0"
+          test "$BUILD" = "30105"
+          test "$BUNDLE_ID" = "com.featherbeta.lucas"
+          test "$DISPLAY_NAME" = "Feather Beta"
+
+          cp packages/Feather.ipa Feather-3.1-Beta-5.ipa
+
+      - name: Publicar Feather 3.1 Beta 5
+        uses: actions/upload-artifact@v4
+        with:
+          name: Feather-3.1-Beta-5
+          path: Feather-3.1-Beta-5.ipa
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

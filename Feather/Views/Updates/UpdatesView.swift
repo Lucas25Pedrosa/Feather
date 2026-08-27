@@ -55,7 +55,7 @@ struct UpdatesView: View {
 					NBSection("") {
 						Label {
 							Text(
-								.localized(
+								verbatim: .localized(
 									"%d source(s) could not be checked. Existing update information was preserved.",
 									arguments: updateManager.lastCheckFailedSourceCount
 								)
@@ -232,6 +232,32 @@ private struct UpdateCellView: View {
 	}
 	
 	private var _subtitle: String {
+		if update.isPackageOnlyUpdate {
+			if
+				let localLabel = update.localPackageLabel,
+				let remoteLabel = update.remotePackageLabel,
+				localLabel != remoteLabel
+			{
+				return "\(localLabel) → \(remoteLabel)"
+			}
+			if let remoteLabel = update.remotePackageLabel {
+				return remoteLabel
+			}
+			if
+				let localRevision = update.localPackageRevision,
+				let remoteRevision = update.remotePackageRevision
+			{
+				return "pkg \(localRevision) → \(remoteRevision)"
+			}
+			if let remoteRevision = update.remotePackageRevision {
+				let release = _releaseText(
+					version: update.remoteVersion,
+					build: update.remoteBuildVersion
+				)
+				return "\(release) • pkg \(remoteRevision)"
+			}
+		}
+		
 		let local = _releaseText(
 			version: update.localVersion ?? .localized("Unknown"),
 			build: update.localBuildVersion

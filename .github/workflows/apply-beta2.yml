@@ -25,6 +25,11 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/scripts/apply_beta2.py
+
+          # Workflows exigem uma permissão especial que o GITHUB_TOKEN deste job
+          # não possui. O build-beta.yml é atualizado separadamente via GitHub.
+          git checkout -- .github/workflows/build-beta.yml
+
           python3 - <<'PY'
           from pathlib import Path
           files = [
@@ -33,7 +38,6 @@ jobs:
               "Feather/Views/Updates/UpdatesView.swift",
               "Feather/Views/TabView/Bars/TabbarView.swift",
               "Feather/Views/Settings/SettingsView.swift",
-              ".github/workflows/build-beta.yml",
           ]
           for value in files:
               path = Path(value)
@@ -43,7 +47,7 @@ jobs:
           PY
           git diff --check
 
-      - name: Salvar Beta 2
+      - name: Salvar código da Beta 2
         run: |
           set -euo pipefail
           if git diff --quiet; then
@@ -57,7 +61,6 @@ jobs:
             Feather/Backend/Observable/UpdateManager.swift \
             Feather/Views/Updates/UpdatesView.swift \
             Feather/Views/TabView/Bars/TabbarView.swift \
-            Feather/Views/Settings/SettingsView.swift \
-            .github/workflows/build-beta.yml
+            Feather/Views/Settings/SettingsView.swift
           git commit -m "Finalize Feather 3.1 Beta 2"
           git push origin HEAD:beta/3.1.0-beta2

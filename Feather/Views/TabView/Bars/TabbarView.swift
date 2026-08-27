@@ -71,7 +71,7 @@ struct TabbarView: View {
 }
 
 
-private struct _TabBarBadgePositionConfigurator: UIViewControllerRepresentable {
+struct _TabBarBadgePositionConfigurator: UIViewControllerRepresentable {
 	func makeUIViewController(context: Context) -> Controller {
 		Controller()
 	}

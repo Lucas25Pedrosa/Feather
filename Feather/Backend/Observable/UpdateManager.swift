@@ -16,6 +16,11 @@ struct AppUpdate: Identifiable, Equatable {
 	let localBuildVersion: String?
 	let remoteVersion: String
 	let remoteBuildVersion: String?
+	let localPackageRevision: String?
+	let remotePackageRevision: String?
+	let localPackageLabel: String?
+	let remotePackageLabel: String?
+	let isPackageOnlyUpdate: Bool
 	let remoteReleaseID: String
 	let appName: String
 	let bundleIdentifier: String
@@ -52,8 +57,9 @@ final class UpdateManager: ObservableObject {
 		guard let candidate = _candidateUpdate(for: app) else { return nil }
 		
 		// Source metadata is authoritative for source-linked downloads. It contains
-		// the exact source version/build even when the IPA's CFBundle version uses a
-		// different human-readable beta label.
+		// the exact source version/build and download URL used for the installation.
+		// The URL can also carry an optional package revision, allowing Feather to
+		// detect an updated injected package even when app version/build did not move.
 		if let metadata = Storage.shared.sourceMetadata(for: app),
 		   let metadataVersion = metadata.sourceAppVersion,
 		   !metadataVersion.isEmpty {
@@ -63,8 +69,10 @@ final class UpdateManager: ObservableObject {
 			return Self._isRemoteReleaseNewer(
 				remoteVersion: candidate.remoteVersion,
 				remoteBuild: candidate.remoteBuildVersion,
+				remoteDownloadURL: candidate.downloadURL,
 				installedVersion: metadataVersion,
-				installedBuild: metadataBuild
+				installedBuild: metadataBuild,
+				installedDownloadURL: metadata.sourceAppDownloadURL
 			) ? candidate : nil
 		}
 		
@@ -147,8 +155,10 @@ final class UpdateManager: ObservableObject {
 			return Self._isRemoteReleaseNewer(
 				remoteVersion: update.remoteVersion,
 				remoteBuild: update.remoteBuildVersion,
+				remoteDownloadURL: update.downloadURL,
 				installedVersion: installedVersion,
-				installedBuild: installedBuild
+				installedBuild: installedBuild,
+				installedDownloadURL: metadata?.sourceAppDownloadURL
 			)
 		}
 	}
@@ -293,7 +303,8 @@ final class UpdateManager: ObservableObject {
 				
 				guard
 					let remoteVersion = remoteApp.currentVersion,
-					!remoteVersion.isEmpty
+					!remoteVersion.isEmpty,
+					let downloadURL = remoteApp.currentDownloadUrl
 				else {
 					continue
 				}
@@ -302,8 +313,10 @@ final class UpdateManager: ObservableObject {
 				guard Self._isRemoteReleaseNewer(
 					remoteVersion: remoteVersion,
 					remoteBuild: remoteBuild,
+					remoteDownloadURL: downloadURL,
 					installedVersion: installedApp.installedVersion,
-					installedBuild: installedApp.installedBuildVersion
+					installedBuild: installedApp.installedBuildVersion,
+					installedDownloadURL: installedApp.sourceAppDownloadURL
 				) else {
 					continue
 				}
@@ -312,7 +325,11 @@ final class UpdateManager: ObservableObject {
 					continue
 				}
 				
-				let remoteReleaseID = Self._releaseID(version: remoteVersion, build: remoteBuild)
+				let remoteReleaseID = Self._releaseID(
+					version: remoteVersion,
+					build: remoteBuild,
+					downloadURL: downloadURL
+				)
 				if let ignoredVersion = installedApp.ignoredRemoteVersion {
 					if ignoredVersion == remoteReleaseID || ignoredVersion == remoteVersion {
 						continue
@@ -322,10 +339,6 @@ final class UpdateManager: ObservableObject {
 						recordID: installedApp.id,
 						currentRemoteVersion: remoteReleaseID
 					)
-				}
-				
-				guard let downloadURL = remoteApp.currentDownloadUrl else {
-					continue
 				}
 				
 				guard let provenance = SourceAppProvenance(
@@ -338,6 +351,18 @@ final class UpdateManager: ObservableObject {
 				
 				let changelog = remoteApp.currentAppVersion?.localizedDescription
 					?? remoteApp.versionDescription
+				let localPackageRevision = Self._packageRevision(from: installedApp.sourceAppDownloadURL)
+				let remotePackageRevision = Self._packageRevision(from: downloadURL)
+				let localPackageLabel = Self._packageLabel(from: installedApp.sourceAppDownloadURL)
+				let remotePackageLabel = Self._packageLabel(from: downloadURL)
+				let packageOnlyUpdate = Self._isPackageOnlyUpdate(
+					remoteVersion: remoteVersion,
+					remoteBuild: remoteBuild,
+					remoteDownloadURL: downloadURL,
+					installedVersion: installedApp.installedVersion,
+					installedBuild: installedApp.installedBuildVersion,
+					installedDownloadURL: installedApp.sourceAppDownloadURL
+				)
 				
 				foundUpdates[installedApp.id] = AppUpdate(
 					id: installedApp.id,
@@ -346,6 +371,11 @@ final class UpdateManager: ObservableObject {
 					localBuildVersion: installedApp.installedBuildVersion,
 					remoteVersion: remoteVersion,
 					remoteBuildVersion: remoteBuild,
+					localPackageRevision: localPackageRevision,
+					remotePackageRevision: remotePackageRevision,
+					localPackageLabel: localPackageLabel,
+					remotePackageLabel: remotePackageLabel,
+					isPackageOnlyUpdate: packageOnlyUpdate,
 					remoteReleaseID: remoteReleaseID,
 					appName: remoteApp.currentName,
 					bundleIdentifier: installedApp.sourceAppIdentifier,
@@ -383,8 +413,10 @@ final class UpdateManager: ObservableObject {
 			if Self._isRemoteReleaseNewer(
 				remoteVersion: record.installedVersion,
 				remoteBuild: record.installedBuildVersion,
+				remoteDownloadURL: record.sourceAppDownloadURL,
 				installedVersion: current.installedVersion,
-				installedBuild: current.installedBuildVersion
+				installedBuild: current.installedBuildVersion,
+				installedDownloadURL: current.sourceAppDownloadURL
 			) || (record.installedVersion == current.installedVersion
 				&& record.installedBuildVersion == current.installedBuildVersion
 				&& record.updatedAt > current.updatedAt) {
@@ -398,8 +430,10 @@ final class UpdateManager: ObservableObject {
 	private static func _isRemoteReleaseNewer(
 		remoteVersion: String,
 		remoteBuild: String?,
+		remoteDownloadURL: URL? = nil,
 		installedVersion: String,
-		installedBuild: String?
+		installedBuild: String?,
+		installedDownloadURL: URL? = nil
 	) -> Bool {
 		let versionComparison = remoteVersion.compare(
 			installedVersion,
@@ -408,24 +442,122 @@ final class UpdateManager: ObservableObject {
 		if versionComparison == .orderedDescending { return true }
 		if versionComparison == .orderedAscending { return false }
 		
-		guard
-			let remoteBuild,
-			!remoteBuild.isEmpty,
-			let installedBuild,
-			!installedBuild.isEmpty
-		else {
-			return false
+		let normalizedRemoteBuild = _normalizedValue(remoteBuild)
+		let normalizedInstalledBuild = _normalizedValue(installedBuild)
+		if normalizedRemoteBuild != normalizedInstalledBuild {
+			guard
+				let normalizedRemoteBuild,
+				let normalizedInstalledBuild
+			else {
+				return false
+			}
+			return normalizedRemoteBuild.compare(
+				normalizedInstalledBuild,
+				options: [.numeric, .caseInsensitive]
+			) == .orderedDescending
 		}
 		
-		return remoteBuild.compare(
-			installedBuild,
-			options: [.numeric, .caseInsensitive]
-		) == .orderedDescending
+		let remotePackageRevision = _packageRevision(from: remoteDownloadURL)
+		let installedPackageRevision = _packageRevision(from: installedDownloadURL)
+		guard let remotePackageRevision else { return false }
+		guard let installedPackageRevision else {
+			// Migration path: a revision appearing for the first time on an otherwise
+			// identical app release means the packaged IPA changed.
+			return true
+		}
+		
+		return remotePackageRevision.compare(
+			installedPackageRevision,
+			options: [.caseInsensitive]
+		) != .orderedSame
 	}
 	
-	private static func _releaseID(version: String, build: String?) -> String {
-		guard let build, !build.isEmpty else { return version }
-		return "\(version) (\(build))"
+	private static func _isPackageOnlyUpdate(
+		remoteVersion: String,
+		remoteBuild: String?,
+		remoteDownloadURL: URL?,
+		installedVersion: String,
+		installedBuild: String?,
+		installedDownloadURL: URL?
+	) -> Bool {
+		guard remoteVersion.compare(
+			installedVersion,
+			options: [.numeric, .caseInsensitive]
+		) == .orderedSame else {
+			return false
+		}
+		guard _normalizedValue(remoteBuild) == _normalizedValue(installedBuild) else {
+			return false
+		}
+		guard let remoteRevision = _packageRevision(from: remoteDownloadURL) else {
+			return false
+		}
+		guard let installedRevision = _packageRevision(from: installedDownloadURL) else {
+			return true
+		}
+		return remoteRevision.compare(installedRevision, options: [.caseInsensitive]) != .orderedSame
+	}
+	
+	private static func _releaseID(version: String, build: String?, downloadURL: URL?) -> String {
+		let base: String
+		if let build = _normalizedValue(build) {
+			base = "\(version) (\(build))"
+		} else {
+			base = version
+		}
+		guard let revision = _packageRevision(from: downloadURL) else { return base }
+		return "\(base) [pkg:\(revision)]"
+	}
+	
+	private static func _packageRevision(from url: URL?) -> String? {
+		guard let url else { return nil }
+		if let explicit = _queryValue(
+			in: url,
+			keys: ["packageRevision", "featherRevision", "pkgRevision"]
+		) {
+			return explicit
+		}
+		guard let tweakVersion = _queryValue(in: url, keys: ["tweakVersion"]) else {
+			return nil
+		}
+		let tweakName = _queryValue(in: url, keys: ["tweak", "tweakName"]) ?? "tweak"
+		return "\(tweakName)@\(tweakVersion)"
+	}
+	
+	private static func _packageLabel(from url: URL?) -> String? {
+		guard let url else { return nil }
+		if let explicit = _queryValue(in: url, keys: ["packageLabel"]) {
+			return explicit
+		}
+		guard let tweakVersion = _queryValue(in: url, keys: ["tweakVersion"]) else {
+			return nil
+		}
+		if let tweakName = _queryValue(in: url, keys: ["tweak", "tweakName"]) {
+			return "\(tweakName) \(tweakVersion)"
+		}
+		return tweakVersion
+	}
+	
+	private static func _queryValue(in url: URL, keys: [String]) -> String? {
+		guard let queryItems = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems else {
+			return nil
+		}
+		for key in keys {
+			if let value = queryItems.first(where: {
+				$0.name.compare(key, options: [.caseInsensitive]) == .orderedSame
+			})?.value?.trimmingCharacters(in: .whitespacesAndNewlines),
+			!value.isEmpty {
+				return value
+			}
+		}
+		return nil
+	}
+	
+	private static func _normalizedValue(_ value: String?) -> String? {
+		guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else {
+			return nil
+		}
+		return value
 	}
 	
 	private func _matchesStoredRepository(

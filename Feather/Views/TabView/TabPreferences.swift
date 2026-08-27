@@ -38,19 +38,22 @@ final class TabPreferences: ObservableObject {
 		} else {
 			resolvedVisible = Set(storedVisible).intersection(Set(TabEnum.allMainTabs))
 		}
-
-		order = resolvedOrder
-		visibleTabs = resolvedVisible.union([.settings])
+		let finalVisible = resolvedVisible.union([.settings])
 
 		let storedDefault = defaults.string(forKey: Self._defaultKey)
 			.flatMap(TabEnum.init(rawValue:))
-		if let storedDefault, visibleTabs.contains(storedDefault) {
-			defaultTab = storedDefault
-		} else if visibleTabs.contains(.sources) {
-			defaultTab = .sources
+		let resolvedDefault: TabEnum
+		if let storedDefault, finalVisible.contains(storedDefault) {
+			resolvedDefault = storedDefault
+		} else if finalVisible.contains(.sources) {
+			resolvedDefault = .sources
 		} else {
-			defaultTab = .settings
+			resolvedDefault = .settings
 		}
+
+		order = resolvedOrder
+		visibleTabs = finalVisible
+		defaultTab = resolvedDefault
 
 		_persist()
 	}

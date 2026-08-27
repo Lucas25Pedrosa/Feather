@@ -7,7 +7,6 @@
 
 import SwiftUI
 import CoreData
-import UIKit
 
 struct TabbarView: View {
 	@StateObject private var tabPreferences = TabPreferences.shared
@@ -32,7 +31,6 @@ struct TabbarView: View {
 					.tag(tab)
 			}
 		}
-		.background(_TabBarBadgePositionConfigurator().frame(width: 0, height: 0))
 		.onAppear {
 			guard !_didResolveInitialTab else { return }
 			_didResolveInitialTab = true
@@ -63,68 +61,5 @@ struct TabbarView: View {
 
 	private func _checkForUpdates() async {
 		await updateManager.checkForUpdates(sources: Array(_sources))
-	}
-}
-
-
-private struct _TabBarBadgePositionConfigurator: UIViewControllerRepresentable {
-	func makeUIViewController(context: Context) -> Controller {
-		Controller()
-	}
-
-	func updateUIViewController(_ uiViewController: Controller, context: Context) {
-		uiViewController.configureBadgePosition()
-	}
-
-	final class Controller: UIViewController {
-		override func viewDidAppear(_ animated: Bool) {
-			super.viewDidAppear(animated)
-			configureBadgePosition()
-		}
-
-		func configureBadgePosition() {
-			DispatchQueue.main.async { [weak self] in
-				guard
-					let root = self?.view.window?.rootViewController,
-					let tabBarController = Self.findTabBarController(in: root)
-				else {
-					return
-				}
-				let tabBar = tabBarController.tabBar
-				let appearance = tabBar.standardAppearance
-				// iOS 27's floating selected tab places the native badge too close to
-				// the symbol. Move it farther toward the icon's upper-right corner.
-				let offset = UIOffset(horizontal: 12, vertical: -8)
-				let layouts = [
-					appearance.stackedLayoutAppearance,
-					appearance.inlineLayoutAppearance,
-					appearance.compactInlineLayoutAppearance,
-				]
-				for layout in layouts {
-					layout.normal.badgePositionAdjustment = offset
-					layout.selected.badgePositionAdjustment = offset
-					layout.focused.badgePositionAdjustment = offset
-					layout.disabled.badgePositionAdjustment = offset
-				}
-				tabBar.standardAppearance = appearance
-				tabBar.scrollEdgeAppearance = appearance
-			}
-		}
-
-		private static func findTabBarController(in controller: UIViewController) -> UITabBarController? {
-			if let tabBarController = controller as? UITabBarController {
-				return tabBarController
-			}
-			if let presented = controller.presentedViewController,
-			   let match = findTabBarController(in: presented) {
-				return match
-			}
-			for child in controller.children {
-				if let match = findTabBarController(in: child) {
-					return match
-				}
-			}
-			return nil
-		}
 	}
 }

@@ -642,8 +642,10 @@ private extension BackupManager {
 	
 	static func _normalizedURLString(_ url: URL) -> String {
 		var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-		components?.scheme = components?.scheme?.lowercased()
-		components?.host = components?.host?.lowercased()
+		let normalizedScheme = components?.scheme?.lowercased()
+		let normalizedHost = components?.host?.lowercased()
+		components?.scheme = normalizedScheme
+		components?.host = normalizedHost
 		components?.fragment = nil
 		let normalized = components?.url ?? url
 		let value = normalized.absoluteString

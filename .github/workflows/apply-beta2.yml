@@ -25,6 +25,22 @@ jobs:
         run: |
           set -euo pipefail
           python3 .github/scripts/apply_beta2.py
+          python3 - <<'PY'
+          from pathlib import Path
+          files = [
+              "Feather/Backend/Storage/InstallationRegistry.swift",
+              "Feather/Backend/Observable/UpdateManager.swift",
+              "Feather/Views/Updates/UpdatesView.swift",
+              "Feather/Views/TabView/Bars/TabbarView.swift",
+              "Feather/Views/Settings/SettingsView.swift",
+              ".github/workflows/build-beta.yml",
+          ]
+          for value in files:
+              path = Path(value)
+              text = path.read_text(encoding="utf-8")
+              cleaned = "\n".join(line.rstrip() for line in text.splitlines()) + "\n"
+              path.write_text(cleaned, encoding="utf-8")
+          PY
           git diff --check
 
       - name: Salvar Beta 2

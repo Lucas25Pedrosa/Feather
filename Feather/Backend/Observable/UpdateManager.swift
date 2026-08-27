@@ -13,7 +13,10 @@ struct AppUpdate: Identifiable, Equatable {
 	let id: String
 	let localUUID: String
 	let localVersion: String?
+	let localBuildVersion: String?
 	let remoteVersion: String
+	let remoteBuildVersion: String?
+	let remoteReleaseID: String
 	let appName: String
 	let bundleIdentifier: String
 	let localBundleIdentifier: String
@@ -33,6 +36,7 @@ final class UpdateManager: ObservableObject {
 	@Published private(set) var updates: [String: AppUpdate] = [:]
 	@Published private(set) var isChecking = false
 	@Published private(set) var lastCheckedDate: Date?
+	@Published private(set) var lastCheckFailedSourceCount = 0
 	
 	private let _dataService = NBFetchService()
 	
@@ -47,8 +51,24 @@ final class UpdateManager: ObservableObject {
 	func update(for app: AppInfoPresentable) -> AppUpdate? {
 		guard let candidate = _candidateUpdate(for: app) else { return nil }
 		
-		// A freshly downloaded update is already the remote version. In that case
-		// Library should offer Sign/Install instead of downloading the same IPA again.
+		// Source metadata is authoritative for source-linked downloads. It contains
+		// the exact source version/build even when the IPA's CFBundle version uses a
+		// different human-readable beta label.
+		if let metadata = Storage.shared.sourceMetadata(for: app),
+		   let metadataVersion = metadata.sourceAppVersion,
+		   !metadataVersion.isEmpty {
+			let metadataBuild = SourceAppProvenance.buildVersion(
+				fromSourceVersionID: metadata.sourceVersionID
+			)
+			return Self._isRemoteReleaseNewer(
+				remoteVersion: candidate.remoteVersion,
+				remoteBuild: candidate.remoteBuildVersion,
+				installedVersion: metadataVersion,
+				installedBuild: metadataBuild
+			) ? candidate : nil
+		}
+		
+		// Fallback for apps without source metadata.
 		if let appVersion = app.version, !appVersion.isEmpty {
 			let comparison = appVersion.compare(
 				candidate.remoteVersion,
@@ -69,7 +89,7 @@ final class UpdateManager: ObservableObject {
 	func hideCurrentUpdate(_ update: AppUpdate) {
 		guard InstallationRegistry.shared.ignoreUpdate(
 			recordID: update.id,
-			remoteVersion: update.remoteVersion
+			remoteVersion: update.remoteReleaseID
 		) else {
 			return
 		}
@@ -100,13 +120,16 @@ final class UpdateManager: ObservableObject {
 		let sourceAppIdentifier = metadata?.sourceAppIdentifier
 		
 		let installedVersion: String
-		if let appVersion = app.version, !appVersion.isEmpty {
-			installedVersion = appVersion
-		} else if let metadataVersion = metadata?.sourceAppVersion, !metadataVersion.isEmpty {
+		if let metadataVersion = metadata?.sourceAppVersion, !metadataVersion.isEmpty {
 			installedVersion = metadataVersion
+		} else if let appVersion = app.version, !appVersion.isEmpty {
+			installedVersion = appVersion
 		} else {
 			return
 		}
+		let installedBuild = SourceAppProvenance.buildVersion(
+			fromSourceVersionID: metadata?.sourceVersionID
+		)
 		
 		updates = updates.filter { _, update in
 			let sameBundle = update.localBundleIdentifier == localBundleIdentifier
@@ -121,11 +144,12 @@ final class UpdateManager: ObservableObject {
 				guard isSameApp else { return true }
 			}
 			
-			let comparison = installedVersion.compare(
-				update.remoteVersion,
-				options: [.numeric, .caseInsensitive]
+			return Self._isRemoteReleaseNewer(
+				remoteVersion: update.remoteVersion,
+				remoteBuild: update.remoteBuildVersion,
+				installedVersion: installedVersion,
+				installedBuild: installedBuild
 			)
-			return comparison == .orderedAscending
 		}
 	}
 	
@@ -133,9 +157,6 @@ final class UpdateManager: ObservableObject {
 		sources: [AltSource],
 		localApps: [AppInfoPresentable] = []
 	) async {
-		// Do not silently discard a pull-to-refresh just because the automatic
-		// check that started when the view appeared is still running. Wait for the
-		// current pass to finish, then execute a new forced network pass.
 		while isChecking {
 			try? await Task.sleep(nanoseconds: 50_000_000)
 		}
@@ -146,15 +167,32 @@ final class UpdateManager: ObservableObject {
 			lastCheckedDate = Date()
 		}
 		
-		// Library entries are intentionally not the authority anymore.
-		// They remain in the signature so existing callers do not need special handling.
 		_ = localApps
 		
-		let repositories = await _fetchRepositories(from: sources)
-		updates = _findUpdates(
-			repositories: repositories,
+		let fetchResult = await _fetchRepositories(from: sources)
+		lastCheckFailedSourceCount = fetchResult.failedSourceURLs.count
+		
+		// If every configured source failed, do not replace a previously valid
+		// update list with a misleading "No Updates" state.
+		if !sources.isEmpty && fetchResult.repositories.isEmpty && !fetchResult.failedSourceURLs.isEmpty {
+			return
+		}
+		
+		let freshUpdates = _findUpdates(
+			repositories: fetchResult.repositories,
 			installedApps: InstallationRegistry.shared.records
 		)
+		
+		// Preserve entries belonging to sources that temporarily failed while
+		// refreshing successful sources normally.
+		var merged = freshUpdates
+		for (id, existing) in updates {
+			let normalizedURL = _normalizedSourceURL(existing.sourceURL)
+			if fetchResult.failedSourceURLs.contains(normalizedURL), merged[id] == nil {
+				merged[id] = existing
+			}
+		}
+		updates = merged
 	}
 	
 	private func _candidateUpdate(for app: AppInfoPresentable) -> AppUpdate? {
@@ -186,8 +224,14 @@ final class UpdateManager: ObservableObject {
 		}
 	}
 	
-	private func _fetchRepositories(from sources: [AltSource]) async -> [(AltSource, ASRepository)] {
+	private struct RepositoryFetchResult {
+		let repositories: [(AltSource, ASRepository)]
+		let failedSourceURLs: Set<String>
+	}
+	
+	private func _fetchRepositories(from sources: [AltSource]) async -> RepositoryFetchResult {
 		var repositories: [(AltSource, ASRepository)] = []
+		var failedSourceURLs: Set<String> = []
 		
 		for source in sources {
 			guard let url = source.sourceURL else {
@@ -195,13 +239,17 @@ final class UpdateManager: ObservableObject {
 			}
 			
 			guard let repository = await _fetchRepository(from: url) else {
+				failedSourceURLs.insert(_normalizedSourceURL(url))
 				continue
 			}
 			
 			repositories.append((source, repository))
 		}
 		
-		return repositories
+		return RepositoryFetchResult(
+			repositories: repositories,
+			failedSourceURLs: failedSourceURLs
+		)
 	}
 	
 	private func _fetchRepository(from url: URL) async -> ASRepository? {
@@ -249,12 +297,14 @@ final class UpdateManager: ObservableObject {
 				else {
 					continue
 				}
+				let remoteBuild = remoteApp.currentAppVersion?.build
 				
-				let comparison = remoteVersion.compare(
-					installedApp.installedVersion,
-					options: [.numeric, .caseInsensitive]
-				)
-				guard comparison == .orderedDescending else {
+				guard Self._isRemoteReleaseNewer(
+					remoteVersion: remoteVersion,
+					remoteBuild: remoteBuild,
+					installedVersion: installedApp.installedVersion,
+					installedBuild: installedApp.installedBuildVersion
+				) else {
 					continue
 				}
 				
@@ -262,15 +312,15 @@ final class UpdateManager: ObservableObject {
 					continue
 				}
 				
+				let remoteReleaseID = Self._releaseID(version: remoteVersion, build: remoteBuild)
 				if let ignoredVersion = installedApp.ignoredRemoteVersion {
-					if ignoredVersion == remoteVersion {
+					if ignoredVersion == remoteReleaseID || ignoredVersion == remoteVersion {
 						continue
 					}
 					
-					// "Hide This Update" applies only to that exact remote version.
 					InstallationRegistry.shared.clearStaleIgnoredVersion(
 						recordID: installedApp.id,
-						currentRemoteVersion: remoteVersion
+						currentRemoteVersion: remoteReleaseID
 					)
 				}
 				
@@ -293,7 +343,10 @@ final class UpdateManager: ObservableObject {
 					id: installedApp.id,
 					localUUID: installedApp.id,
 					localVersion: installedApp.installedVersion,
+					localBuildVersion: installedApp.installedBuildVersion,
 					remoteVersion: remoteVersion,
+					remoteBuildVersion: remoteBuild,
+					remoteReleaseID: remoteReleaseID,
 					appName: remoteApp.currentName,
 					bundleIdentifier: installedApp.sourceAppIdentifier,
 					localBundleIdentifier: installedApp.localBundleIdentifier,
@@ -327,19 +380,52 @@ final class UpdateManager: ObservableObject {
 				continue
 			}
 			
-			let versionComparison = record.installedVersion.compare(
-				current.installedVersion,
-				options: [.numeric, .caseInsensitive]
-			)
-			
-			if versionComparison == .orderedDescending
-				|| (versionComparison == .orderedSame && record.updatedAt > current.updatedAt)
-			{
+			if Self._isRemoteReleaseNewer(
+				remoteVersion: record.installedVersion,
+				remoteBuild: record.installedBuildVersion,
+				installedVersion: current.installedVersion,
+				installedBuild: current.installedBuildVersion
+			) || (record.installedVersion == current.installedVersion
+				&& record.installedBuildVersion == current.installedBuildVersion
+				&& record.updatedAt > current.updatedAt) {
 				canonical[key] = record
 			}
 		}
 		
 		return Array(canonical.values)
+	}
+	
+	private static func _isRemoteReleaseNewer(
+		remoteVersion: String,
+		remoteBuild: String?,
+		installedVersion: String,
+		installedBuild: String?
+	) -> Bool {
+		let versionComparison = remoteVersion.compare(
+			installedVersion,
+			options: [.numeric, .caseInsensitive]
+		)
+		if versionComparison == .orderedDescending { return true }
+		if versionComparison == .orderedAscending { return false }
+		
+		guard
+			let remoteBuild,
+			!remoteBuild.isEmpty,
+			let installedBuild,
+			!installedBuild.isEmpty
+		else {
+			return false
+		}
+		
+		return remoteBuild.compare(
+			installedBuild,
+			options: [.numeric, .caseInsensitive]
+		) == .orderedDescending
+	}
+	
+	private static func _releaseID(version: String, build: String?) -> String {
+		guard let build, !build.isEmpty else { return version }
+		return "\(version) (\(build))"
 	}
 	
 	private func _matchesStoredRepository(

@@ -9,12 +9,16 @@ import SwiftUI
 
 struct TweakCatalogView: View {
 	@StateObject private var _catalog = TweakCatalogManager.shared
+	@StateObject private var _monitoring = SourceMonitoringPreferences.shared
+	@StateObject private var _updates = UpdateManager.shared
 	@ObservedObject private var _registry = InstallationRegistry.shared
 	@State private var _catalogURL = ""
 	@State private var _alertMessage: String?
 	
 	private var _records: [InstalledSourceAppRecord] {
-		_registry.records.sorted {
+		_registry.records
+			.filter { _monitoring.isMonitored($0.localBundleIdentifier) }
+			.sorted {
 			($0.appName ?? $0.localBundleIdentifier)
 				.localizedCaseInsensitiveCompare($1.appName ?? $1.localBundleIdentifier) == .orderedAscending
 		}
@@ -81,6 +85,38 @@ struct TweakCatalogView: View {
 				Text("Cadastre aqui um app que já estava instalado antes do Feather começar a acompanhá-lo. Depois você poderá informar o tweak instalado.")
 			}
 			
+			if !_updates.sourceApps.isEmpty {
+				Section {
+					ForEach(_updates.sourceApps) { app in
+						Toggle(
+							isOn: Binding(
+								get: { _monitoring.isMonitored(app.bundleIdentifier) },
+								set: { enabled in
+									_monitoring.setMonitored(enabled, bundleIdentifier: app.bundleIdentifier)
+									_updates.applyMonitoringPreferences()
+									if enabled {
+										Task {
+											await _updates.checkForUpdates(sources: Storage.shared.getSources())
+										}
+									}
+								}
+							)
+						) {
+							VStack(alignment: .leading, spacing: 2) {
+								Text(app.name)
+								Text(app.bundleIdentifier)
+									.font(.caption2)
+									.foregroundStyle(.secondary)
+							}
+						}
+					}
+				} header: {
+					Text("Apps monitorados")
+				} footer: {
+					Text("Escolha quais aplicativos das suas fontes serão monitorados para tweaks e atualizações. Apps ocultados continuam disponíveis normalmente nas Fontes e podem ser reativados a qualquer momento.")
+				}
+			}
+			
 			if !_records.isEmpty {
 				Section {
 					ForEach(_records) { record in
@@ -109,6 +145,7 @@ struct TweakCatalogView: View {
 		}
 		.task {
 			await _catalog.refresh(force: false)
+			await _updates.checkForUpdates(sources: Storage.shared.getSources())
 		}
 		.alert(
 			"Catálogo de tweaks",

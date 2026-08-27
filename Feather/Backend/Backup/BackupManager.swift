@@ -22,6 +22,7 @@ private struct FeatherBackupPayload: Codable {
 	let createdAt: Date
 	let records: [InstalledSourceAppRecord]?
 	let sources: [FeatherBackupSourceRecord]?
+	let hiddenMonitoredBundleIdentifiers: [String]?
 }
 
 private struct FeatherBackupHealthResponse: Decodable {
@@ -164,6 +165,16 @@ final class BackupManager: ObservableObject {
 		
 		NotificationCenter.default.addObserver(
 			forName: .featherSourcesChanged,
+			object: nil,
+			queue: .main
+		) { [weak self] _ in
+			Task { @MainActor in
+				self?.scheduleAutomaticBackup()
+			}
+		}
+		
+		NotificationCenter.default.addObserver(
+			forName: .featherSourceMonitoringChanged,
 			object: nil,
 			queue: .main
 		) { [weak self] _ in
@@ -366,10 +377,13 @@ final class BackupManager: ObservableObject {
 			: nil
 		
 		let payload = FeatherBackupPayload(
-			schemaVersion: 2,
+			schemaVersion: 3,
 			createdAt: Date(),
 			records: includeUpdateHistory ? InstallationRegistry.shared.records : nil,
-			sources: sourceRecords
+			sources: sourceRecords,
+			hiddenMonitoredBundleIdentifiers: includeUpdateHistory
+				? SourceMonitoringPreferences.shared.backupHiddenBundleIdentifiers
+				: nil
 		)
 		
 		let encoder = JSONEncoder()
@@ -468,14 +482,19 @@ final class BackupManager: ObservableObject {
 			throw FeatherBackupError.invalidBackup
 		}
 		
-		guard payload.schemaVersion == 1 || payload.schemaVersion == 2 else {
+		guard [1, 2, 3].contains(payload.schemaVersion) else {
 			throw FeatherBackupError.unsupportedBackupVersion
 		}
 		
 		var restoredRecordCount = 0
-		if restoreUpdateHistory, let records = payload.records {
-			InstallationRegistry.shared.restoreBackupRecords(records)
-			restoredRecordCount = records.count
+		if restoreUpdateHistory {
+			if let records = payload.records {
+				InstallationRegistry.shared.restoreBackupRecords(records)
+				restoredRecordCount = records.count
+			}
+			SourceMonitoringPreferences.shared.restoreHiddenBundleIdentifiers(
+				payload.hiddenMonitoredBundleIdentifiers ?? []
+			)
 		}
 		
 		var sourcesAdded = 0

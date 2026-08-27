@@ -32,6 +32,14 @@ struct AppUpdate: Identifiable, Equatable {
 	let sourceProvenance: SourceAppProvenance
 }
 
+struct MonitoredSourceApp: Identifiable, Equatable {
+	let bundleIdentifier: String
+	let name: String
+	let iconURL: URL?
+	
+	var id: String { bundleIdentifier.lowercased() }
+}
+
 @MainActor
 final class UpdateManager: ObservableObject {
 	static let shared = UpdateManager()
@@ -42,6 +50,7 @@ final class UpdateManager: ObservableObject {
 	@Published private(set) var isChecking = false
 	@Published private(set) var lastCheckedDate: Date?
 	@Published private(set) var lastCheckFailedSourceCount = 0
+	@Published private(set) var sourceApps: [MonitoredSourceApp] = []
 
 	private let _dataService = NBFetchService()
 
@@ -202,9 +211,17 @@ final class UpdateManager: ObservableObject {
 			return
 		}
 
+		let discoveredSourceApps = _sourceApps(from: fetchResult.repositories)
+		if fetchResult.failedSourceURLs.isEmpty || sourceApps.isEmpty {
+			sourceApps = discoveredSourceApps
+		}
+
+		let monitoredRecords = InstallationRegistry.shared.records.filter {
+			SourceMonitoringPreferences.shared.isMonitored($0.localBundleIdentifier)
+		}
 		let freshUpdates = _findUpdates(
 			repositories: fetchResult.repositories,
-			installedApps: InstallationRegistry.shared.records
+			installedApps: monitoredRecords
 		)
 
 		// Preserve entries belonging to sources that temporarily failed while
@@ -217,6 +234,12 @@ final class UpdateManager: ObservableObject {
 			}
 		}
 		updates = merged
+	}
+
+	func applyMonitoringPreferences() {
+		updates = updates.filter { _, update in
+			SourceMonitoringPreferences.shared.isMonitored(update.localBundleIdentifier)
+		}
 	}
 
 	private func _candidateUpdate(for app: AppInfoPresentable) -> AppUpdate? {
@@ -403,6 +426,40 @@ final class UpdateManager: ObservableObject {
 		}
 
 		return foundUpdates
+	}
+
+	private func _sourceApps(
+		from repositories: [(AltSource, ASRepository)]
+	) -> [MonitoredSourceApp] {
+		var canonical: [String: MonitoredSourceApp] = [:]
+		
+		for (_, repository) in repositories {
+			for app in repository.apps {
+				guard let rawBundleIdentifier = app.id else { continue }
+				let bundleIdentifier = rawBundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines)
+				guard !bundleIdentifier.isEmpty else { continue }
+				let key = bundleIdentifier.lowercased()
+				let candidate = MonitoredSourceApp(
+					bundleIdentifier: bundleIdentifier,
+					name: app.currentName,
+					iconURL: app.iconURL
+				)
+				
+				if let current = canonical[key] {
+					let currentIsUnknown = current.name.caseInsensitiveCompare("Unknown") == .orderedSame
+					let candidateIsKnown = candidate.name.caseInsensitiveCompare("Unknown") != .orderedSame
+					if currentIsUnknown && candidateIsKnown {
+						canonical[key] = candidate
+					}
+				} else {
+					canonical[key] = candidate
+				}
+			}
+		}
+		
+		return canonical.values.sorted {
+			$0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+		}
 	}
 
 	private func _canonicalInstalledApps(

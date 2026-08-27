@@ -44,6 +44,10 @@ struct TabbarView: View {
 		.onReceive(NotificationCenter.default.publisher(for: .featherSourcesChanged)) { _ in
 			Task { await _checkForUpdates() }
 		}
+		.onReceive(NotificationCenter.default.publisher(for: .featherSourceMonitoringChanged)) { _ in
+			updateManager.applyMonitoringPreferences()
+			Task { await _checkForUpdates() }
+		}
 		.onReceive(NotificationCenter.default.publisher(for: Notification.Name("Feather.selectTab"))) { notification in
 			guard
 				let rawValue = notification.object as? String,

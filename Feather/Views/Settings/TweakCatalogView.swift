@@ -9,20 +9,9 @@ import SwiftUI
 
 struct TweakCatalogView: View {
 	@StateObject private var _catalog = TweakCatalogManager.shared
-	@StateObject private var _monitoring = SourceMonitoringPreferences.shared
 	@StateObject private var _updates = UpdateManager.shared
-	@ObservedObject private var _registry = InstallationRegistry.shared
 	@State private var _catalogURL = ""
 	@State private var _alertMessage: String?
-	
-	private var _records: [InstalledSourceAppRecord] {
-		_registry.records
-			.filter { _monitoring.isMonitored($0.localBundleIdentifier) }
-			.sorted {
-			($0.appName ?? $0.localBundleIdentifier)
-				.localizedCaseInsensitiveCompare($1.appName ?? $1.localBundleIdentifier) == .orderedAscending
-		}
-	}
 	
 	var body: some View {
 		Form {
@@ -81,31 +70,24 @@ struct TweakCatalogView: View {
 				NavigationLink(destination: ManuallyInstalledAppsView()) {
 					Label("Gerenciar apps instalados", systemImage: "app.badge.checkmark")
 				}
+			} footer: {
+				Text("Gerencie os aplicativos já registrados pelo Feather e corrija manualmente o vínculo com a source quando necessário.")
+			}
+			
+			Section {
 				NavigationLink(destination: MonitoredAppsView()) {
 					Label("Apps monitorados", systemImage: "eye")
 				}
 			} footer: {
-				Text("Gerencie os apps já cadastrados e escolha quais aplicativos das suas fontes o Feather deve acompanhar para tweaks e atualizações.")
+				Text("Escolha quais aplicativos das suas fontes o Feather deve acompanhar para tweaks, atualizações e badge.")
 			}
-
-			if !_records.isEmpty {
-				Section {
-					ForEach(_records) { record in
-						NavigationLink(destination: InstalledTweakEditorView(recordID: record.id)) {
-							VStack(alignment: .leading, spacing: 3) {
-								Text(record.appName ?? record.localBundleIdentifier)
-									.font(.body)
-								Text(_packageSummary(for: record))
-									.font(.caption)
-									.foregroundStyle(.secondary)
-							}
-						}
-					}
-				} header: {
-					Text("Tweaks instalados")
-				} footer: {
-					Text("Manual é usado apenas para a configuração inicial. Depois de instalar uma atualização pela source, o Feather passa a registrar os metadados do pacote automaticamente.")
+			
+			Section {
+				NavigationLink(destination: InstalledTweaksView()) {
+					Label("Tweaks instalados", systemImage: "puzzlepiece.extension")
 				}
+			} footer: {
+				Text("Consulte e ajuste o tweak registrado em cada app monitorado, mantendo separadas a versão instalada e a versão disponível no catálogo.")
 			}
 		}
 		.navigationTitle("Tweaks e atualizações")
@@ -131,18 +113,6 @@ struct TweakCatalogView: View {
 		}
 	}
 	
-	private func _packageSummary(for record: InstalledSourceAppRecord) -> String {
-		guard let label = record.installedPackageLabel else {
-			if let catalogApp = _catalog.app(for: record.localBundleIdentifier),
-			   let addon = catalogApp.addons.first {
-				return "Não configurado · \(addon.name) disponível"
-			}
-			return "Tweak não configurado"
-		}
-		let source = record.packageMetadataSource == .source ? "Automático" : "Manual"
-		return "\(label) · \(source)"
-	}
-	
 	private func _saveAndRefresh() {
 		do {
 			try _catalog.saveCatalogURL(_catalogURL)
@@ -154,6 +124,63 @@ struct TweakCatalogView: View {
 	}
 }
 
+private struct InstalledTweaksView: View {
+	@StateObject private var _catalog = TweakCatalogManager.shared
+	@StateObject private var _monitoring = SourceMonitoringPreferences.shared
+	@ObservedObject private var _registry = InstallationRegistry.shared
+	
+	private var _records: [InstalledSourceAppRecord] {
+		_registry.records
+			.filter { _monitoring.isMonitored($0.localBundleIdentifier) }
+			.sorted {
+				($0.appName ?? $0.localBundleIdentifier)
+					.localizedCaseInsensitiveCompare($1.appName ?? $1.localBundleIdentifier) == .orderedAscending
+			}
+	}
+	
+	var body: some View {
+		List {
+			if _records.isEmpty {
+				Section {
+					Text("Nenhum app monitorado possui informação de tweak disponível no momento.")
+						.foregroundStyle(.secondary)
+				}
+			} else {
+				Section {
+					ForEach(_records) { record in
+						NavigationLink(destination: InstalledTweakEditorView(recordID: record.id)) {
+							VStack(alignment: .leading, spacing: 3) {
+								Text(record.appName ?? record.localBundleIdentifier)
+									.font(.body)
+								Text(_packageSummary(for: record))
+									.font(.caption)
+									.foregroundStyle(.secondary)
+							}
+						}
+					}
+				} footer: {
+					Text("Manual é usado apenas para a configuração inicial. Depois de instalar uma atualização pela source, o Feather passa a registrar os metadados do pacote automaticamente.")
+				}
+			}
+		}
+		.navigationTitle("Tweaks instalados")
+		.task {
+			await _catalog.refresh(force: false)
+		}
+	}
+	
+	private func _packageSummary(for record: InstalledSourceAppRecord) -> String {
+		guard let label = record.installedPackageLabel else {
+			if let catalogApp = _catalog.app(for: record.localBundleIdentifier),
+			   let addon = catalogApp.addons.first {
+				return "Não configurado · \(addon.name) disponível"
+			}
+			return "Tweak não configurado"
+		}
+		let source = record.packageMetadataSource == .source ? "Automático" : "Manual"
+		return "\(label) · \(source)"
+	}
+}
 
 private struct MonitoredAppsView: View {
 	@StateObject private var _monitoring = SourceMonitoringPreferences.shared

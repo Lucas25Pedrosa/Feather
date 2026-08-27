@@ -2,7 +2,7 @@
 //  BackupManager.swift
 //  Feather
 //
-//  Encrypted cloud backup for the source-linked installation registry.
+//  Encrypted cloud backup for source-linked installation history and sources.
 //
 
 import Combine
@@ -10,15 +10,28 @@ import CryptoKit
 import Foundation
 import Security
 
+private struct FeatherBackupSourceRecord: Codable, Equatable {
+	let sourceURL: URL
+	let name: String?
+	let identifier: String
+	let iconURL: URL?
+}
+
 private struct FeatherBackupPayload: Codable {
 	let schemaVersion: Int
 	let createdAt: Date
-	let records: [InstalledSourceAppRecord]
+	let records: [InstalledSourceAppRecord]?
+	let sources: [FeatherBackupSourceRecord]?
 }
 
 private struct FeatherBackupHealthResponse: Decodable {
 	let ok: Bool?
 	let service: String?
+}
+
+struct FeatherBackupRestoreResult: Equatable {
+	let updateHistoryRecords: Int
+	let sourcesAdded: Int
 }
 
 enum BackupConnectionState: Equatable {
@@ -45,6 +58,7 @@ enum FeatherBackupError: LocalizedError {
 	case serverError(Int)
 	case invalidBackup
 	case unsupportedBackupVersion
+	case nothingSelected
 	case busy
 	
 	var errorDescription: String? {
@@ -84,6 +98,8 @@ enum FeatherBackupError: LocalizedError {
 			return NSLocalizedString("The downloaded backup is invalid or the recovery key is incorrect.", comment: "")
 		case .unsupportedBackupVersion:
 			return NSLocalizedString("This backup was created by an unsupported backup format.", comment: "")
+		case .nothingSelected:
+			return NSLocalizedString("Select Sources, Updates, or both.", comment: "")
 		case .busy:
 			return NSLocalizedString("A backup operation is already in progress.", comment: "")
 		}
@@ -97,6 +113,8 @@ final class BackupManager: ObservableObject {
 	private static let _serverURLKey = "Feather.cloudBackup.serverURL"
 	private static let _enabledKey = "Feather.cloudBackup.enabled"
 	private static let _lastBackupKey = "Feather.cloudBackup.lastBackupDate"
+	private static let _includeSourcesKey = "Feather.cloudBackup.includeSources"
+	private static let _includeUpdatesKey = "Feather.cloudBackup.includeUpdates"
 	private static let _recoveryKeyKeychainAccount = "Feather.CloudBackup.RecoveryKey"
 	private static let _serverPasswordKeychainAccount = "Feather.CloudBackup.ServerPassword"
 	private static let _keyLengthBytes = 20
@@ -107,27 +125,45 @@ final class BackupManager: ObservableObject {
 	@Published private(set) var connectionState: BackupConnectionState = .idle
 	@Published private(set) var isEnabled: Bool
 	@Published private(set) var lastBackupDate: Date?
+	@Published private(set) var includeSources: Bool
+	@Published private(set) var includeUpdateHistory: Bool
 	@Published private(set) var isBusy = false
 	
 	private var _automaticBackupTask: Task<Void, Never>?
 	
 	private init() {
+		let defaults = UserDefaults.standard
 		let storedRecoveryKey = Self._loadRecoveryKey()
-		let storedServerURL = UserDefaults.standard.string(forKey: Self._serverURLKey) ?? ""
+		let storedServerURL = defaults.string(forKey: Self._serverURLKey) ?? ""
 		let storedServerPassword = Self._loadKeychainString(account: Self._serverPasswordKeychainAccount) ?? ""
-		let storedEnabled = UserDefaults.standard.bool(forKey: Self._enabledKey)
-		let storedLastBackupDate = UserDefaults.standard.object(forKey: Self._lastBackupKey) as? Date
+		let storedEnabled = defaults.bool(forKey: Self._enabledKey)
+		let storedLastBackupDate = defaults.object(forKey: Self._lastBackupKey) as? Date
+		let storedIncludeSources = defaults.object(forKey: Self._includeSourcesKey) as? Bool ?? true
+		let storedIncludeUpdates = defaults.object(forKey: Self._includeUpdatesKey) as? Bool ?? true
 		
 		recoveryKey = storedRecoveryKey
 		serverURLString = storedServerURL
 		serverPassword = storedServerPassword
+		includeSources = storedIncludeSources
+		includeUpdateHistory = storedIncludeUpdates
 		isEnabled = storedEnabled
 			&& storedRecoveryKey != nil
 			&& !storedServerURL.isEmpty
+			&& (storedIncludeSources || storedIncludeUpdates)
 		lastBackupDate = storedLastBackupDate
 		
 		NotificationCenter.default.addObserver(
 			forName: .featherInstallationRegistryChanged,
+			object: nil,
+			queue: .main
+		) { [weak self] _ in
+			Task { @MainActor in
+				self?.scheduleAutomaticBackup()
+			}
+		}
+		
+		NotificationCenter.default.addObserver(
+			forName: .featherSourcesChanged,
 			object: nil,
 			queue: .main
 		) { [weak self] _ in
@@ -146,11 +182,36 @@ final class BackupManager: ObservableObject {
 		connectionState == .connected
 	}
 	
+	var hasSelectedContent: Bool {
+		includeSources || includeUpdateHistory
+	}
+	
+	func setIncludeSources(_ enabled: Bool) {
+		includeSources = enabled
+		UserDefaults.standard.set(enabled, forKey: Self._includeSourcesKey)
+		_selectionDidChange()
+	}
+	
+	func setIncludeUpdateHistory(_ enabled: Bool) {
+		includeUpdateHistory = enabled
+		UserDefaults.standard.set(enabled, forKey: Self._includeUpdatesKey)
+		_selectionDidChange()
+	}
+	
+	private func _selectionDidChange() {
+		if !hasSelectedContent {
+			setEnabled(false)
+		} else if isEnabled {
+			scheduleAutomaticBackup()
+		}
+	}
+	
 	func setEnabled(_ enabled: Bool) {
 		let resolved = enabled
 			&& recoveryKey != nil
 			&& !serverURLString.isEmpty
 			&& isConnected
+			&& hasSelectedContent
 		isEnabled = resolved
 		UserDefaults.standard.set(resolved, forKey: Self._enabledKey)
 		
@@ -265,7 +326,8 @@ final class BackupManager: ObservableObject {
 			isEnabled,
 			isConnected,
 			recoveryKey != nil,
-			!serverURLString.isEmpty
+			!serverURLString.isEmpty,
+			hasSelectedContent
 		else {
 			return
 		}
@@ -284,14 +346,30 @@ final class BackupManager: ObservableObject {
 		guard !serverURLString.isEmpty else { throw FeatherBackupError.missingServer }
 		guard isConnected else { throw FeatherBackupError.notConnected }
 		guard isEnabled else { throw FeatherBackupError.notConnected }
+		guard hasSelectedContent else { throw FeatherBackupError.nothingSelected }
 		
 		isBusy = true
 		defer { isBusy = false }
 		
+		let sourceRecords: [FeatherBackupSourceRecord]? = includeSources
+			? Storage.shared.getSources()
+				.compactMap { source in
+					guard let sourceURL = source.sourceURL else { return nil }
+					return FeatherBackupSourceRecord(
+						sourceURL: sourceURL,
+						name: source.name,
+						identifier: source.identifier ?? sourceURL.absoluteString,
+						iconURL: source.iconURL
+					)
+				}
+				.sorted { $0.identifier.localizedCaseInsensitiveCompare($1.identifier) == .orderedAscending }
+			: nil
+		
 		let payload = FeatherBackupPayload(
-			schemaVersion: 1,
+			schemaVersion: 2,
 			createdAt: Date(),
-			records: InstallationRegistry.shared.records
+			records: includeUpdateHistory ? InstallationRegistry.shared.records : nil,
+			sources: sourceRecords
 		)
 		
 		let encoder = JSONEncoder()
@@ -331,7 +409,19 @@ final class BackupManager: ObservableObject {
 	
 	@discardableResult
 	func restoreCurrentBackup() async throws -> Int {
+		let result = try await restoreCurrentBackup(
+			restoreSources: true,
+			restoreUpdateHistory: true
+		)
+		return result.updateHistoryRecords
+	}
+	
+	func restoreCurrentBackup(
+		restoreSources: Bool,
+		restoreUpdateHistory: Bool
+	) async throws -> FeatherBackupRestoreResult {
 		guard !isBusy else { throw FeatherBackupError.busy }
+		guard restoreSources || restoreUpdateHistory else { throw FeatherBackupError.nothingSelected }
 		guard let recoveryKey else { throw FeatherBackupError.missingRecoveryKey }
 		guard !serverURLString.isEmpty else { throw FeatherBackupError.missingServer }
 		guard isConnected else { throw FeatherBackupError.notConnected }
@@ -378,12 +468,63 @@ final class BackupManager: ObservableObject {
 			throw FeatherBackupError.invalidBackup
 		}
 		
-		guard payload.schemaVersion == 1 else {
+		guard payload.schemaVersion == 1 || payload.schemaVersion == 2 else {
 			throw FeatherBackupError.unsupportedBackupVersion
 		}
 		
-		InstallationRegistry.shared.restoreBackupRecords(payload.records)
-		return payload.records.count
+		var restoredRecordCount = 0
+		if restoreUpdateHistory, let records = payload.records {
+			InstallationRegistry.shared.restoreBackupRecords(records)
+			restoredRecordCount = records.count
+		}
+		
+		var sourcesAdded = 0
+		if restoreSources, let sources = payload.sources {
+			sourcesAdded = try await _restoreSources(sources)
+		}
+		
+		return FeatherBackupRestoreResult(
+			updateHistoryRecords: restoredRecordCount,
+			sourcesAdded: sourcesAdded
+		)
+	}
+	
+	private func _restoreSources(_ sources: [FeatherBackupSourceRecord]) async throws -> Int {
+		var knownIdentifiers = Set(Storage.shared.getSources().compactMap(\.identifier))
+		var knownURLs = Set(
+			Storage.shared.getSources()
+				.compactMap(\.sourceURL)
+				.map { Self._normalizedURLString($0) }
+		)
+		var added = 0
+		
+		for source in sources {
+			let normalizedURL = Self._normalizedURLString(source.sourceURL)
+			if knownIdentifiers.contains(source.identifier) || knownURLs.contains(normalizedURL) {
+				continue
+			}
+			
+			try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+				Storage.shared.addSource(
+					source.sourceURL,
+					name: source.name,
+					identifier: source.identifier,
+					iconURL: source.iconURL
+				) { error in
+					if let error {
+						continuation.resume(throwing: error)
+					} else {
+						continuation.resume(returning: ())
+					}
+				}
+			}
+			
+			knownIdentifiers.insert(source.identifier)
+			knownURLs.insert(normalizedURL)
+			added += 1
+		}
+		
+		return added
 	}
 	
 	private func _validateServiceHealth() async throws {
@@ -497,6 +638,16 @@ private extension BackupManager {
 		components.query = nil
 		components.fragment = nil
 		return components.url
+	}
+	
+	static func _normalizedURLString(_ url: URL) -> String {
+		var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+		components?.scheme = components?.scheme?.lowercased()
+		components?.host = components?.host?.lowercased()
+		components?.fragment = nil
+		let normalized = components?.url ?? url
+		let value = normalized.absoluteString
+		return value.hasSuffix("/") ? String(value.dropLast()) : value
 	}
 	
 	static func _normalizeRecoveryKey(_ value: String) -> String? {

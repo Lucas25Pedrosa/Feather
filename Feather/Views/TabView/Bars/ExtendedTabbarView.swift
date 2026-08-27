@@ -29,7 +29,10 @@ struct ExtendedTabbarView: View {
 	var body: some View {
 		TabView(selection: $_selectedTab) {
 			ForEach(tabPreferences.orderedVisibleTabs, id: \.self) { tab in
-				_mainTab(tab)
+				Tab(tab.title, systemImage: tab.icon, value: _tabSelectionValue(tab)) {
+					TabEnum.view(for: tab)
+				}
+				.badge(tab == .updates ? updateManager.availableUpdates.count : 0)
 			}
 			
 			TabSection("Sources") {
@@ -96,20 +99,6 @@ struct ExtendedTabbarView: View {
 				return
 			}
 			_selectedTab = _tabSelectionValue(tabPreferences.defaultTab)
-		}
-	}
-
-	@ViewBuilder
-	private func _mainTab(_ tab: TabEnum) -> some View {
-		if tab == .updates {
-			Tab(tab.title, systemImage: tab.icon, value: _tabSelectionValue(tab)) {
-				TabEnum.view(for: tab)
-			}
-			.badge(updateManager.availableUpdates.count)
-		} else {
-			Tab(tab.title, systemImage: tab.icon, value: _tabSelectionValue(tab)) {
-				TabEnum.view(for: tab)
-			}
 		}
 	}
 	

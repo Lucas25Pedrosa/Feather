@@ -12,11 +12,13 @@ import NukeUI
 @available(iOS 18, *)
 struct ExtendedTabbarView: View {
 	@Environment(\.horizontalSizeClass) var horizontalSizeClass
-	@AppStorage("Feather.tabCustomization") var customization = TabViewCustomization()
+	@StateObject private var tabPreferences = TabPreferences.shared
+	@StateObject private var updateManager = UpdateManager.shared
 	@StateObject var viewModel = SourcesViewModel.shared
 	
 	@State private var _isAddingPresenting = false
 	@State private var _selectedTab = "tab.sources"
+	@State private var _didResolveInitialTab = false
 	
 	@FetchRequest(
 		entity: AltSource.entity(),
@@ -26,20 +28,8 @@ struct ExtendedTabbarView: View {
 		
 	var body: some View {
 		TabView(selection: $_selectedTab) {
-			ForEach(TabEnum.defaultTabs, id: \.hashValue) { tab in
-				Tab(tab.title, systemImage: tab.icon, value: _tabSelectionValue(tab)) {
-					TabEnum.view(for: tab)
-				}
-			}
-			
-			ForEach(TabEnum.customizableTabs, id: \.hashValue) { tab in
-				Tab(tab.title, systemImage: tab.icon, value: _tabSelectionValue(tab)) {
-					TabEnum.view(for: tab)
-				}
-				.customizationID("tab.\(tab.rawValue)")
-				.defaultVisibility(.hidden, for: .tabBar)
-				.customizationBehavior(.reorderable, for: .tabBar, .sidebar)
-				.hidden(horizontalSizeClass == .compact)
+			ForEach(tabPreferences.orderedVisibleTabs, id: \.self) { tab in
+				_mainTab(tab)
 			}
 			
 			TabSection("Sources") {
@@ -73,20 +63,64 @@ struct ExtendedTabbarView: View {
 			.hidden(horizontalSizeClass == .compact)
 		}
 		.tabViewStyle(.sidebarAdaptable)
-		.tabViewCustomization($customization)
 		.sheet(isPresented: $_isAddingPresenting) {
 			SourcesAddView()
 				.presentationDetents([.medium])
 		}
+		.onAppear {
+			_resolveInitialTabIfNeeded()
+		}
+		.task {
+			await _checkForUpdates()
+		}
+		.onReceive(NotificationCenter.default.publisher(for: .featherSourcesChanged)) { _ in
+			Task { await _checkForUpdates() }
+		}
 		.onReceive(NotificationCenter.default.publisher(for: Notification.Name("Feather.selectTab"))) { notification in
 			guard
 				let rawValue = notification.object as? String,
-				let tab = TabEnum(rawValue: rawValue)
+				let tab = TabEnum(rawValue: rawValue),
+				tabPreferences.isVisible(tab)
 			else {
 				return
 			}
 			_selectedTab = _tabSelectionValue(tab)
 		}
+		.onChange(of: tabPreferences.visibleTabs) { _ in
+			guard
+				_selectedTab.hasPrefix("tab."),
+				let rawValue = _selectedTab.split(separator: ".").last.map(String.init),
+				let selected = TabEnum(rawValue: rawValue),
+				!tabPreferences.isVisible(selected)
+			else {
+				return
+			}
+			_selectedTab = _tabSelectionValue(tabPreferences.defaultTab)
+		}
+	}
+
+	@ViewBuilder
+	private func _mainTab(_ tab: TabEnum) -> some View {
+		if tab == .updates {
+			Tab(tab.title, systemImage: tab.icon, value: _tabSelectionValue(tab)) {
+				TabEnum.view(for: tab)
+			}
+			.badge(updateManager.availableUpdates.count)
+		} else {
+			Tab(tab.title, systemImage: tab.icon, value: _tabSelectionValue(tab)) {
+				TabEnum.view(for: tab)
+			}
+		}
+	}
+	
+	private func _resolveInitialTabIfNeeded() {
+		guard !_didResolveInitialTab else { return }
+		_didResolveInitialTab = true
+		_selectedTab = _tabSelectionValue(tabPreferences.defaultTab)
+	}
+
+	private func _checkForUpdates() async {
+		await updateManager.checkForUpdates(sources: Array(_sources))
 	}
 	
 	private func _tabSelectionValue(_ tab: TabEnum) -> String {
@@ -117,9 +151,7 @@ struct ExtendedTabbarView: View {
 		}
 	}
 
-	
 	var standardIcon: some View {
 		Image(systemName: "app.dashed")
 	}
 }
-

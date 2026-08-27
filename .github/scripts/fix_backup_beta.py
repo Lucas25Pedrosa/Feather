@@ -1,5 +1,7 @@
 from pathlib import Path
 
+# Idempotent safeguard for Feather 3.1 Beta CI. The source fix is already
+# committed; keeping this helper makes older checkout states self-repairing.
 path = Path("Feather/Backend/Backup/BackupManager.swift")
 text = path.read_text(encoding="utf-8")
 old = (

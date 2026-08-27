@@ -1,0 +1,47 @@
+name: Apply Feather Beta 2
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - beta/3.1.0-beta2
+    paths:
+      - .github/scripts/apply_beta2.py
+      - .github/workflows/apply-beta2.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Beta 2
+        uses: actions/checkout@v4
+        with:
+          ref: beta/3.1.0-beta2
+
+      - name: Aplicar fechamento da Beta 2
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/apply_beta2.py
+          git diff --check
+
+      - name: Salvar Beta 2
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "Beta 2 já estava aplicada."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            Feather/Backend/Storage/InstallationRegistry.swift \
+            Feather/Backend/Observable/UpdateManager.swift \
+            Feather/Views/Updates/UpdatesView.swift \
+            Feather/Views/TabView/Bars/TabbarView.swift \
+            Feather/Views/Settings/SettingsView.swift \
+            .github/workflows/build-beta.yml
+          git commit -m "Finalize Feather 3.1 Beta 2"
+          git push origin HEAD:beta/3.1.0-beta2

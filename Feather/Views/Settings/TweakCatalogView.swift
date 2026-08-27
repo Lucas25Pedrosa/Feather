@@ -81,42 +81,13 @@ struct TweakCatalogView: View {
 				NavigationLink(destination: ManuallyInstalledAppsView()) {
 					Label("Gerenciar apps instalados", systemImage: "app.badge.checkmark")
 				}
-			} footer: {
-				Text("Cadastre aqui um app que já estava instalado antes do Feather começar a acompanhá-lo. Depois você poderá informar o tweak instalado.")
-			}
-			
-			if !_updates.sourceApps.isEmpty {
-				Section {
-					ForEach(_updates.sourceApps) { app in
-						Toggle(
-							isOn: Binding(
-								get: { _monitoring.isMonitored(app.bundleIdentifier) },
-								set: { enabled in
-									_monitoring.setMonitored(enabled, bundleIdentifier: app.bundleIdentifier)
-									_updates.applyMonitoringPreferences()
-									if enabled {
-										Task {
-											await _updates.checkForUpdates(sources: Storage.shared.getSources())
-										}
-									}
-								}
-							)
-						) {
-							VStack(alignment: .leading, spacing: 2) {
-								Text(app.name)
-								Text(app.bundleIdentifier)
-									.font(.caption2)
-									.foregroundStyle(.secondary)
-							}
-						}
-					}
-				} header: {
-					Text("Apps monitorados")
-				} footer: {
-					Text("Escolha quais aplicativos das suas fontes serão monitorados para tweaks e atualizações. Apps ocultados continuam disponíveis normalmente nas Fontes e podem ser reativados a qualquer momento.")
+				NavigationLink(destination: MonitoredAppsView()) {
+					Label("Apps monitorados", systemImage: "eye")
 				}
+			} footer: {
+				Text("Gerencie os apps já cadastrados e escolha quais aplicativos das suas fontes o Feather deve acompanhar para tweaks e atualizações.")
 			}
-			
+
 			if !_records.isEmpty {
 				Section {
 					ForEach(_records) { record in
@@ -179,6 +150,58 @@ struct TweakCatalogView: View {
 			Task { await _catalog.refresh(force: true) }
 		} catch {
 			_alertMessage = error.localizedDescription
+		}
+	}
+}
+
+
+private struct MonitoredAppsView: View {
+	@StateObject private var _monitoring = SourceMonitoringPreferences.shared
+	@StateObject private var _updates = UpdateManager.shared
+	
+	var body: some View {
+		List {
+			if _updates.sourceApps.isEmpty {
+				Section {
+					HStack(spacing: 10) {
+						ProgressView()
+						Text("Carregando apps das fontes…")
+							.foregroundStyle(.secondary)
+					}
+				}
+			} else {
+				Section {
+					ForEach(_updates.sourceApps) { app in
+						Toggle(
+							isOn: Binding(
+								get: { _monitoring.isMonitored(app.bundleIdentifier) },
+								set: { enabled in
+									_monitoring.setMonitored(enabled, bundleIdentifier: app.bundleIdentifier)
+									_updates.applyMonitoringPreferences()
+									if enabled {
+										Task {
+											await _updates.checkForUpdates(sources: Storage.shared.getSources())
+										}
+									}
+								}
+							)
+						) {
+							VStack(alignment: .leading, spacing: 2) {
+								Text(app.name)
+								Text(app.bundleIdentifier)
+									.font(.caption2)
+									.foregroundStyle(.secondary)
+							}
+						}
+					}
+				} footer: {
+					Text("Desative um app para ocultá-lo de Tweaks instalados e impedir que suas atualizações entrem na lista ou no badge. O app continua disponível normalmente nas Fontes e seu registro é preservado.")
+				}
+			}
+		}
+		.navigationTitle("Apps monitorados")
+		.task {
+			await _updates.checkForUpdates(sources: Storage.shared.getSources())
 		}
 	}
 }

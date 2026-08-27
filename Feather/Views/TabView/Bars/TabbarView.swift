@@ -77,28 +77,40 @@ private struct _TabBarBadgePositionConfigurator: UIViewControllerRepresentable {
 	}
 
 	func updateUIViewController(_ uiViewController: Controller, context: Context) {
-		uiViewController.configureBadgePosition()
+		uiViewController.scheduleBadgePositionUpdate()
 	}
 
 	final class Controller: UIViewController {
 		override func viewDidAppear(_ animated: Bool) {
 			super.viewDidAppear(animated)
-			configureBadgePosition()
+			scheduleBadgePositionUpdate()
 		}
 
-		func configureBadgePosition() {
-			DispatchQueue.main.async { [weak self] in
+		override func viewDidLayoutSubviews() {
+			super.viewDidLayoutSubviews()
+			scheduleBadgePositionUpdate()
+		}
+
+		func scheduleBadgePositionUpdate() {
+			// SwiftUI/iOS 27 may rebuild the Liquid Glass tab-bar appearance after
+			// this representable first appears. Reapply after those layout passes.
+			_applyBadgePosition(after: 0)
+			_applyBadgePosition(after: 0.05)
+			_applyBadgePosition(after: 0.20)
+		}
+
+		private func _applyBadgePosition(after delay: TimeInterval) {
+			DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
 				guard
 					let root = self?.view.window?.rootViewController,
 					let tabBarController = Self.findTabBarController(in: root)
 				else {
 					return
 				}
+
 				let tabBar = tabBarController.tabBar
 				let appearance = tabBar.standardAppearance
-				// iOS 27's floating selected tab places the native badge too close to
-				// the symbol. Move it farther toward the icon's upper-right corner.
-				let offset = UIOffset(horizontal: 12, vertical: -8)
+				let offset = UIOffset(horizontal: 18, vertical: -11)
 				let layouts = [
 					appearance.stackedLayoutAppearance,
 					appearance.inlineLayoutAppearance,
@@ -112,7 +124,27 @@ private struct _TabBarBadgePositionConfigurator: UIViewControllerRepresentable {
 				}
 				tabBar.standardAppearance = appearance
 				tabBar.scrollEdgeAppearance = appearance
+
+				// Runtime fallback for the floating selected-tab presentation, which
+				// can ignore/rewrite badgePositionAdjustment on iOS 27.
+				for badgeView in Self.outermostBadgeViews(in: tabBar) {
+					badgeView.transform = CGAffineTransform(translationX: 5, y: -4)
+				}
 			}
+		}
+
+		private static func outermostBadgeViews(in view: UIView) -> [UIView] {
+			var result: [UIView] = []
+			for subview in view.subviews {
+				let className = NSStringFromClass(type(of: subview)).lowercased()
+				if className.contains("badge") {
+					// Move only the badge container, not its text/background children.
+					result.append(subview)
+					continue
+				}
+				result.append(contentsOf: outermostBadgeViews(in: subview))
+			}
+			return result
 		}
 
 		private static func findTabBarController(in controller: UIViewController) -> UITabBarController? {

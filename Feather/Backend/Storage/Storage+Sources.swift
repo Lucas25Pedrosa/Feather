@@ -10,6 +10,10 @@ import AltSourceKit
 import OSLog
 import UIKit.UIImpactFeedbackGenerator
 
+extension Notification.Name {
+	static let featherSourcesChanged = Notification.Name("Feather.sourcesChanged")
+}
+
 // MARK: - Class extension: Sources
 extension Storage {
 	/// Retrieve sources in an array, we don't normally need this in swiftUI but we have it for the copy sources action
@@ -45,6 +49,7 @@ extension Storage {
 			if !deferSave {
 				try context.save()
 				generator.impactOccurred()
+				NotificationCenter.default.post(name: .featherSourcesChanged, object: nil)
 			}
 			completion(nil)
 		} catch {
@@ -92,12 +97,14 @@ extension Storage {
 		
 		saveContext()
 		generator.impactOccurred()
+		NotificationCenter.default.post(name: .featherSourcesChanged, object: nil)
 		completion(nil)
 	}
 
 	func deleteSource(for source: AltSource) {
 		context.delete(source)
 		saveContext()
+		NotificationCenter.default.post(name: .featherSourcesChanged, object: nil)
 	}
 
 	func sourceExists(_ identifier: String) -> Bool {

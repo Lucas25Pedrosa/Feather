@@ -2,7 +2,7 @@
 //  BackupView.swift
 //  Feather
 //
-//  Cloud backup settings for update history.
+//  Cloud backup settings for sources and update history.
 //
 
 import NimbleViews
@@ -19,6 +19,8 @@ struct BackupView: View {
 	@State private var _alertMessage: String?
 	@State private var _isRestoreConfirmationPresented = false
 	@State private var _isDisconnectConfirmationPresented = false
+	@State private var _restoreSources = true
+	@State private var _restoreUpdates = true
 	
 	var body: some View {
 		NBNavigationView(.localized("Backup & Restore")) {
@@ -28,17 +30,13 @@ struct BackupView: View {
 						.keyboardType(.URL)
 						.textInputAutocapitalization(.never)
 						.autocorrectionDisabled()
-						.onSubmit {
-							_doConnect()
-						}
+						.onSubmit { _doConnect() }
 					
 					SecureField(.localized("Server Password"), text: $_serverPassword)
 						.textContentType(.password)
 						.textInputAutocapitalization(.never)
 						.autocorrectionDisabled()
-						.onSubmit {
-							_doConnect()
-						}
+						.onSubmit { _doConnect() }
 					
 					HStack {
 						Text(.localized("Status"))
@@ -78,9 +76,7 @@ struct BackupView: View {
 								Button(_showRecoveryKey ? .localized("Hide Key") : .localized("Show Key")) {
 									_showRecoveryKey.toggle()
 								}
-								
 								Spacer()
-								
 								Button(.localized("Copy Key")) {
 									UIPasteboard.general.string = formattedKey
 									_alertMessage = .localized("Recovery key copied.")
@@ -124,7 +120,28 @@ struct BackupView: View {
 				} header: {
 					Text(.localized("Installed Apps"))
 				} footer: {
-					Text(.localized("Register apps that were already installed before Feather began tracking them. Their saved versions are used to detect newer versions from your sources and are included in cloud backup."))
+					Text(.localized("Register apps that were already installed before Feather began tracking them. Their saved versions are used to detect newer versions from your sources and can be included in cloud backup."))
+				}
+				
+				Section {
+					Toggle(
+						.localized("Sources"),
+						isOn: Binding(
+							get: { backupManager.includeSources },
+							set: { backupManager.setIncludeSources($0) }
+						)
+					)
+					Toggle(
+						.localized("Updates"),
+						isOn: Binding(
+							get: { backupManager.includeUpdateHistory },
+							set: { backupManager.setIncludeUpdateHistory($0) }
+						)
+					)
+				} header: {
+					Text(.localized("Backup Content"))
+				} footer: {
+					Text(.localized("Choose Sources, Updates, or both. Sources are restored by merging and existing sources are not duplicated."))
 				}
 				
 				Section {
@@ -135,7 +152,7 @@ struct BackupView: View {
 							set: { backupManager.setEnabled($0) }
 						)
 					)
-					.disabled(!backupManager.isConnected)
+					.disabled(!backupManager.isConnected || !backupManager.hasSelectedContent)
 					
 					HStack {
 						Text(.localized("Last Backup"))
@@ -146,7 +163,7 @@ struct BackupView: View {
 				} header: {
 					Text(.localized("Cloud Backup"))
 				} footer: {
-					Text(.localized("Your update history is encrypted on this iPhone before it is uploaded. The recovery key is never sent to the backup service."))
+					Text(.localized("Selected data is encrypted on this iPhone before upload. The recovery key is never sent to the backup service."))
 				}
 				
 				if backupManager.recoveryKey != nil {
@@ -154,12 +171,24 @@ struct BackupView: View {
 						Button(.localized("Back Up Now"), systemImage: "icloud.and.arrow.up") {
 							_doBackupNow()
 						}
-						.disabled(backupManager.isBusy || !backupManager.isEnabled || !backupManager.isConnected)
+						.disabled(
+							backupManager.isBusy
+								|| !backupManager.isEnabled
+								|| !backupManager.isConnected
+								|| !backupManager.hasSelectedContent
+						)
+						
+						Toggle(.localized("Sources"), isOn: $_restoreSources)
+						Toggle(.localized("Updates"), isOn: $_restoreUpdates)
 						
 						Button(.localized("Restore Backup"), systemImage: "arrow.counterclockwise.icloud") {
 							_isRestoreConfirmationPresented = true
 						}
-						.disabled(backupManager.isBusy || !backupManager.isConnected)
+						.disabled(
+							backupManager.isBusy
+								|| !backupManager.isConnected
+								|| (!_restoreSources && !_restoreUpdates)
+						)
 						
 						if backupManager.isBusy {
 							HStack {
@@ -171,7 +200,7 @@ struct BackupView: View {
 					} header: {
 						Text(.localized("Actions"))
 					} footer: {
-						Text(.localized("Restore replaces the local update history with the encrypted cloud backup. Your installed apps and IPA files are not changed."))
+						Text(.localized("Restore only changes the selected data. Existing source entries are kept and duplicates are skipped."))
 					}
 				}
 			}
@@ -191,13 +220,8 @@ struct BackupView: View {
 			else {
 				return
 			}
-			
-			if _serverURL.isEmpty {
-				_serverURL = backupManager.serverURLString
-			}
-			if _serverPassword.isEmpty {
-				_serverPassword = backupManager.serverPassword
-			}
+			if _serverURL.isEmpty { _serverURL = backupManager.serverURLString }
+			if _serverPassword.isEmpty { _serverPassword = backupManager.serverPassword }
 			await backupManager.refreshConnection()
 		}
 		.alert(
@@ -221,7 +245,7 @@ struct BackupView: View {
 			}
 			Button(.localized("Cancel"), role: .cancel) { }
 		} message: {
-			Text(.localized("The local update history will be replaced by the cloud backup."))
+			Text(.localized("Only the selected backup content will be restored."))
 		}
 		.confirmationDialog(
 			.localized("Remove Recovery Key?"),
@@ -294,7 +318,6 @@ struct BackupView: View {
 		do {
 			try backupManager.useRecoveryKey(_enteredRecoveryKey)
 			_enteredRecoveryKey = ""
-			
 			if !_serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
 				_doConnect()
 			} else {
@@ -321,7 +344,9 @@ struct BackupView: View {
 						_serverURL = backupManager.serverURLString
 						_serverPassword = backupManager.serverPassword
 						backupManager.setEnabled(true)
-						try await backupManager.backupNow()
+						if backupManager.hasSelectedContent {
+							try await backupManager.backupNow()
+						}
 						_alertMessage = .localized("A new recovery key was generated, copied, connected, and backed up. Save the key somewhere safe.")
 					} catch {
 						_alertMessage = error.localizedDescription
@@ -349,9 +374,16 @@ struct BackupView: View {
 	private func _doRestore() {
 		Task {
 			do {
-				let count = try await backupManager.restoreCurrentBackup()
+				let result = try await backupManager.restoreCurrentBackup(
+					restoreSources: _restoreSources,
+					restoreUpdateHistory: _restoreUpdates
+				)
 				backupManager.setEnabled(true)
-				_alertMessage = .localized("Backup restored. %d update history records were recovered.", arguments: count)
+				_alertMessage = .localized(
+					"Backup restored: %d update records and %d sources added.",
+					arguments: result.updateHistoryRecords,
+					result.sourcesAdded
+				)
 			} catch {
 				_alertMessage = error.localizedDescription
 			}

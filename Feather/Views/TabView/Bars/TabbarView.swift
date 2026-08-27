@@ -92,7 +92,9 @@ private struct _TabBarBadgePositionConfigurator: UIViewControllerRepresentable {
 				}
 				let tabBar = tabBarController.tabBar
 				let appearance = tabBar.standardAppearance
-				let offset = UIOffset(horizontal: 5, vertical: -4)
+				// iOS 27's floating selected tab places the native badge too close to
+				// the symbol. Move it farther toward the icon's upper-right corner.
+				let offset = UIOffset(horizontal: 12, vertical: -8)
 				let layouts = [
 					appearance.stackedLayoutAppearance,
 					appearance.inlineLayoutAppearance,

@@ -1,14 +1,14 @@
-# Feather 3.1 Beta 2 build pipeline
+# Feather 3.1 Beta 3 build pipeline
 name: Build Feather Beta
 
 on:
   workflow_dispatch:
   push:
     branches:
-      - beta/3.1.0-beta2
+      - beta/3.1.0-beta3
   pull_request:
     branches:
-      - beta/3.1.0-beta2
+      - beta/3.1.0-beta3
 
 permissions:
   contents: write
@@ -22,7 +22,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: beta/3.1.0-beta2
+          ref: beta/3.1.0-beta3
           submodules: recursive
 
       - name: Corrigir exclusividade do BackupManager na Beta
@@ -35,7 +35,25 @@ jobs:
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add Feather/Backend/Backup/BackupManager.swift
             git commit -m "[skip ci] Fix BackupManager URL normalization exclusivity"
-            git push origin HEAD:beta/3.1.0-beta2
+            git push origin HEAD:beta/3.1.0-beta3
+          fi
+
+      - name: Aplicar recursos da Beta 3
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/apply_beta3.py
+
+          if ! git diff --quiet; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add \
+              Feather/Backend/Observable/SourceMonitoringPreferences.swift \
+              Feather/Backend/Observable/UpdateManager.swift \
+              Feather/Backend/Backup/BackupManager.swift \
+              Feather/Views/Settings/TweakCatalogView.swift \
+              Feather/Views/TabView/Bars/TabbarView.swift
+            git commit -m "[skip ci] Apply Feather 3.1 Beta 3 monitored apps"
+            git push origin HEAD:beta/3.1.0-beta3
           fi
 
       - name: Selecionar Xcode 26.2 do build validado
@@ -131,7 +149,7 @@ jobs:
           print("Resolução automática desativada.")
           PY
 
-      - name: Configurar Beta 2 e manter NIGHTLY interno
+      - name: Configurar Beta 3 e manter NIGHTLY interno
         run: |
           set -euo pipefail
 
@@ -163,7 +181,7 @@ jobs:
 
               block, build_count = re.subn(
                   r'(^\s*CURRENT_PROJECT_VERSION\s*=\s*)[^;]+;',
-                  r'\g<1>30102;',
+                  r'\g<1>30103;',
                   block,
                   count=1,
                   flags=re.MULTILINE,
@@ -202,7 +220,7 @@ jobs:
               block = block[:condition_match.start()] + replacement + block[condition_match.end():]
 
               text = text[:match.start(2)] + block + text[match.end(2):]
-              print(f"{config_name}: build=30102, display=Feather Beta, conditions={new_value!r}")
+              print(f"{config_name}: build=30103, display=Feather Beta, conditions={new_value!r}")
 
           project.write_text(text, encoding="utf-8")
           PY
@@ -210,9 +228,9 @@ jobs:
           grep -q '#if !NIGHTLY && !DEBUG' Feather/Views/Settings/SettingsView.swift
           grep -q 'FEATHER_PROJECT_VERSION=3.1.0' Feather.xcconfig
           grep -q 'FEATHER_PRODUCT_BUNDLE_IDENTIFIER=com.featherbeta.lucas' Feather.xcconfig
-          echo 'Identidade Beta configurada e banner de doação continuará suprimido.'
+          echo 'Identidade Beta 3 configurada e banner de doação continuará suprimido.'
 
-      - name: Compilar Feather 3.1 Beta 2 para iPhone
+      - name: Compilar Feather 3.1 Beta 3 para iPhone
         run: |
           set -o pipefail
           make iphoneos 2>&1 | tee feather-build.log
@@ -221,12 +239,12 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Feather-3.1-Beta-2-build-log
+          name: Feather-3.1-Beta-3-build-log
           path: feather-build.log
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Validar IPA Beta 2 gerado
+      - name: Validar IPA Beta 3 gerado
         run: |
           set -euo pipefail
           test -f packages/Feather.ipa
@@ -250,19 +268,19 @@ jobs:
           echo "Nome: $DISPLAY_NAME"
 
           test "$VERSION" = "3.1.0"
-          test "$BUILD" = "30102"
+          test "$BUILD" = "30103"
           test "$BUNDLE_ID" = "com.featherbeta.lucas"
           test "$DISPLAY_NAME" = "Feather Beta"
 
-          cp packages/Feather.ipa Feather-3.1-Beta-2.ipa
-          echo 'IPA Feather 3.1 Beta 2 validado.'
-          ls -lh Feather-3.1-Beta-2.ipa
+          cp packages/Feather.ipa Feather-3.1-Beta-3.ipa
+          echo 'IPA Feather 3.1 Beta 3 validado.'
+          ls -lh Feather-3.1-Beta-3.ipa
 
-      - name: Publicar Feather 3.1 Beta 2
+      - name: Publicar Feather 3.1 Beta 3
         uses: actions/upload-artifact@v4
         with:
-          name: Feather-3.1-Beta-2
-          path: Feather-3.1-Beta-2.ipa
+          name: Feather-3.1-Beta-3
+          path: Feather-3.1-Beta-3.ipa
           if-no-files-found: error
           compression-level: 0
           retention-days: 30

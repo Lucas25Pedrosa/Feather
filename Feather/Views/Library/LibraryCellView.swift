@@ -14,8 +14,6 @@ struct LibraryCellView: View {
 	@Environment(\.horizontalSizeClass) private var horizontalSizeClass
 	@Environment(\.editMode) private var editMode
 	@ObservedObject private var updateManager = UpdateManager.shared
-	@State private var _signedUpdateConfirmation: AppUpdate?
-	@State private var _isSignedUpdateConfirmationPresented = false
 
 	var certInfo: Date.ExpirationInfo? {
 		Storage.shared.getCertificate(from: app)?.expiration?.expirationInfo()
@@ -79,7 +77,7 @@ struct LibraryCellView: View {
 		.background(
 			isRegular
 				? RoundedRectangle(cornerRadius: 18, style: .continuous)
-				.fill(_isSelected && isEditing ? Color.accentColor.opacity(0.1) : Color(.quaternarySystemFill))
+					.fill(_isSelected && isEditing ? Color.accentColor.opacity(0.1) : Color(.quaternarySystemFill))
 				: nil
 		)
 		.contentShape(Rectangle())
@@ -100,25 +98,6 @@ struct LibraryCellView: View {
 				_contextActionsExtra(for: app)
 				Divider()
 				_actions(for: app)
-			}
-		}
-		.confirmationDialog(
-			.localized("Update Available"),
-			isPresented: $_isSignedUpdateConfirmationPresented,
-			titleVisibility: .visible
-		) {
-			Button(.localized("Install Current Version"), systemImage: "square.and.arrow.down") {
-				selectedInstallAppPresenting = AnyApp(base: app)
-			}
-			if let update = _signedUpdateConfirmation {
-				Button(.localized("Download Update"), systemImage: "arrow.down.circle") {
-					_startUpdateDownload(update)
-				}
-			}
-			Button(.localized("Cancel"), role: .cancel) {}
-		} message: {
-			if let update = _signedUpdateConfirmation {
-				Text("\(update.appName) \(update.remoteVersion)")
 			}
 		}
 	}
@@ -172,12 +151,7 @@ extension LibraryCellView {
 	private func _contextActionsExtra(for app: AppInfoPresentable) -> some View {
 		if let update = updateManager.update(for: app) {
 			Button(.localized("Update"), systemImage: "arrow.down.circle") {
-				if app.isSigned {
-					_signedUpdateConfirmation = update
-					_isSignedUpdateConfirmationPresented = true
-				} else {
-					_startUpdateDownload(update)
-				}
+				_startUpdateDownload(update)
 			}
 		}
 		
@@ -209,30 +183,7 @@ extension LibraryCellView {
 	@ViewBuilder
 	private func _buttonActions(for app: AppInfoPresentable) -> some View {
 		Group {
-			if let update = updateManager.update(for: app) {
-				if app.isSigned {
-					Button {
-						_signedUpdateConfirmation = update
-						_isSignedUpdateConfirmationPresented = true
-					} label: {
-						FRExpirationPillView(
-							title: .localized("Install"),
-							revoked: certRevoked,
-							expiration: certInfo
-						)
-					}
-				} else {
-					Button {
-						_startUpdateDownload(update)
-					} label: {
-						FRExpirationPillView(
-							title: .localized("Update"),
-							revoked: false,
-							expiration: nil
-						)
-					}
-				}
-			} else if app.isSigned {
+			if app.isSigned {
 				Button {
 					selectedInstallAppPresenting = AnyApp(base: app)
 				} label: {
@@ -240,6 +191,16 @@ extension LibraryCellView {
 						title: .localized("Install"),
 						revoked: certRevoked,
 						expiration: certInfo
+					)
+				}
+			} else if let update = updateManager.update(for: app) {
+				Button {
+					_startUpdateDownload(update)
+				} label: {
+					FRExpirationPillView(
+						title: .localized("Update"),
+						revoked: false,
+						expiration: nil
 					)
 				}
 			} else {

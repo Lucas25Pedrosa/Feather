@@ -227,6 +227,7 @@ private struct InstalledTweakEditorView: View {
 													.font(.caption2)
 													.foregroundStyle(.secondary)
 											}
+										}
 										Spacer()
 										if record.installedPackageName?.caseInsensitiveCompare(addon.name) == .orderedSame,
 										   record.installedPackageVersion == version {

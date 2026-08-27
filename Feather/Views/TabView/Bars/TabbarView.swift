@@ -128,7 +128,7 @@ struct _TabBarBadgePositionConfigurator: UIViewControllerRepresentable {
 				// Runtime fallback for the floating selected-tab presentation, which
 				// can ignore/rewrite badgePositionAdjustment on iOS 27.
 				for badgeView in Self.outermostBadgeViews(in: tabBar) {
-					badgeView.transform = CGAffineTransform(translationX: 5, y: -4)
+					badgeView.transform = CGAffineTransform(translationX: 12, y: -4)
 				}
 			}
 		}

@@ -15,6 +15,7 @@ final class AppFileHandler: NSObject, @unchecked Sendable {
 	private let _uniqueWorkDir: URL
 	var uniqueWorkDirPayload: URL?
 
+	private let _originalIPA: URL
 	private var _ipa: URL
 	private let _install: Bool
 	private let _download: Download?
@@ -26,6 +27,7 @@ final class AppFileHandler: NSObject, @unchecked Sendable {
 		download: Download? = nil,
 		sourceProvenance: SourceAppProvenance? = nil
 	) {
+		self._originalIPA = ipa
 		self._ipa = ipa
 		self._install = install
 		self._download = download
@@ -159,6 +161,14 @@ final class AppFileHandler: NSObject, @unchecked Sendable {
 	
 	func clean() async throws {
 		try _fileManager.removeFileIfNeeded(at: _uniqueWorkDir)
+
+		let downloadsDirectory = _fileManager.temporaryDirectory
+			.appendingPathComponent("FeatherDownloads", isDirectory: true)
+		let downloadsPrefix = downloadsDirectory.standardizedFileURL.path + "/"
+		let originalPath = _originalIPA.standardizedFileURL.path
+		if originalPath.hasPrefix(downloadsPrefix) {
+			try? _fileManager.removeItem(at: _originalIPA)
+		}
 	}
 }
 

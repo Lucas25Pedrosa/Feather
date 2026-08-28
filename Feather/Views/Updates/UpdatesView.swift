@@ -17,6 +17,8 @@ private struct UpdateSigningIdentity {
 
 struct UpdatesView: View {
 	@StateObject private var updateManager = UpdateManager.shared
+	@StateObject private var updateEngine = UpdateEngineManager.shared
+	@StateObject private var updatePreferences = UpdateEnginePreferences.shared
 	@State private var _selectedSigningAppPresenting: AnyApp?
 	@State private var _updateSigningIdentity: UpdateSigningIdentity?
 	@State private var _signedUUIDsBeforeSigning: Set<String> = []
@@ -48,6 +50,11 @@ struct UpdatesView: View {
 		_updateEntries.count
 	}
 
+	private var _canShowBatchControl: Bool {
+		(_updateCount > 1 || updateEngine.isBatchRunning)
+			&& (updatePreferences.usableCertificate() != nil || updateEngine.isBatchRunning)
+	}
+
 	var body: some View {
 		NBNavigationView(.localized("Updates")) {
 			NBListAdaptable {
@@ -65,6 +72,29 @@ struct UpdatesView: View {
 						} icon: {
 							Image(systemName: "exclamationmark.triangle")
 								.foregroundStyle(.orange)
+						}
+					}
+				}
+
+				if _canShowBatchControl {
+					NBSection("") {
+						_batchControl
+					}
+				}
+
+				if updateEngine.hasFinishedBatchSummary {
+					NBSection("") {
+						Label {
+							VStack(alignment: .leading, spacing: 3) {
+								Text("Atualização em massa concluída")
+									.font(.headline)
+								Text(_batchSummaryText)
+									.font(.caption)
+									.foregroundStyle(.secondary)
+							}
+						} icon: {
+							Image(systemName: updateEngine.batchFailed == 0 ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+								.foregroundStyle(updateEngine.batchFailed == 0 ? Color.green : Color.orange)
 						}
 					}
 				}
@@ -88,7 +118,8 @@ struct UpdatesView: View {
 					ProgressView()
 				} else if !updateManager.isChecking
 					&& _updateCount == 0
-					&& updateManager.lastCheckFailedSourceCount == 0 {
+					&& updateManager.lastCheckFailedSourceCount == 0
+					&& !updateEngine.hasFinishedBatchSummary {
 					if #available(iOS 17, *) {
 						ContentUnavailableView {
 							Label(.localized("No Updates Available"), systemImage: "checkmark.circle.fill")
@@ -134,6 +165,52 @@ struct UpdatesView: View {
 				await _checkForUpdates()
 			}
 		}
+	}
+
+	@ViewBuilder
+	private var _batchControl: some View {
+		if updateEngine.isBatchRunning {
+			VStack(alignment: .leading, spacing: 8) {
+				HStack {
+					Label("Atualizando tudo", systemImage: "arrow.triangle.2.circlepath")
+						.font(.headline)
+					Spacer()
+					Text("\(updateEngine.batchProcessed)/\(updateEngine.batchTotal)")
+						.font(.subheadline.monospacedDigit())
+						.foregroundStyle(.secondary)
+				}
+
+				ProgressView(
+					value: Double(updateEngine.batchProcessed),
+					total: Double(max(1, updateEngine.batchTotal))
+				)
+
+				if let current = updateEngine.batchCurrentAppName {
+					Text("Processando: \(current)")
+						.font(.caption)
+						.foregroundStyle(.secondary)
+				}
+			}
+		} else {
+			Button {
+				_ = updateEngine.startAll(_updateEntries)
+			} label: {
+				HStack {
+					Label("Atualizar Tudo", systemImage: "arrow.triangle.2.circlepath")
+					Spacer()
+					Text(_updateCount.description)
+						.foregroundStyle(.secondary)
+				}
+			}
+			.buttonStyle(.borderless)
+		}
+	}
+
+	private var _batchSummaryText: String {
+		if updateEngine.batchFailed == 0 {
+			return "\(updateEngine.batchSucceeded) app(s) atualizado(s) com sucesso."
+		}
+		return "\(updateEngine.batchSucceeded) concluído(s) • \(updateEngine.batchFailed) falhou/falharam."
 	}
 
 	private func _checkForUpdates() async {
@@ -237,7 +314,7 @@ private struct UpdateCellView: View {
 	}
 
 	private var _isBusy: Bool {
-		_isManualDownloading || _engineState.isActive
+		_isManualDownloading || _engineState.isActive || updateEngine.isBatchRunning
 	}
 
 	private var _subtitle: String {
@@ -364,7 +441,7 @@ private struct UpdateCellView: View {
 								.frame(width: 24, height: 32)
 						}
 						.buttonStyle(.borderless)
-						.disabled(_engineState.isActive)
+						.disabled(_engineState.isActive || updateEngine.isBatchRunning)
 					}
 
 					Text(_subtitle)
@@ -446,6 +523,8 @@ private struct UpdateCellView: View {
 	}
 
 	private func _startUpdate() {
+		guard !updateEngine.isBatchRunning else { return }
+
 		if updateEngine.start(update) {
 			return
 		}

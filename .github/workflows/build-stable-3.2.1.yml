@@ -1,4 +1,4 @@
-name: Build Feather 3.2.1 Candidate
+name: Build Feather 3.2.1 RC2
 
 on:
   workflow_dispatch:
@@ -21,33 +21,35 @@ jobs:
           ref: stable/3.2.1
           submodules: recursive
 
-      - name: Aplicar ajustes Feather 3.2.1
+      - name: Aplicar ajustes Feather 3.2.1 RC2
         run: |
           set -euo pipefail
-          python3 .github/scripts/apply_321.py
+          python3 .github/scripts/apply_321_rc2.py
           python3 .github/scripts/fix_backup_beta.py
 
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
             git add Feather Feather.xcconfig
-            git commit -m "[skip ci] Apply Feather 3.2.1 refinements"
+            git commit -m "[skip ci] Apply Feather 3.2.1 RC2 layout"
             git push origin HEAD:stable/3.2.1
           fi
 
-      - name: Validar ajustes 3.2.1
+      - name: Validar ajustes 3.2.1 RC2
         run: |
           set -euo pipefail
           grep -q 'FEATHER_PROJECT_VERSION=3.2.1' Feather.xcconfig
-          grep -q 'Label("Atualizações e instalação"' Feather/Views/Settings/SettingsView.swift
-          grep -q '.navigationTitle("Atualizações e instalação")' Feather/Views/Settings/UpdateEngineSettingsView.swift
+          ! grep -q 'NavigationLink(destination: UpdateEngineSettingsView())' Feather/Views/Settings/SettingsView.swift
+          ! grep -q 'NavigationLink(destination: StorageCleanupView())' Feather/Views/Settings/Installation/InstallationView.swift
+          grep -q 'Text("Comportamento")' Feather/Views/Settings/Installation/InstallationView.swift
+          grep -q 'Label("Assinatura manual"' Feather/Views/Settings/Installation/InstallationView.swift
+          grep -q 'Text("Certificado padrão")' Feather/Views/Settings/Installation/InstallationView.swift
+          grep -q 'Text("Limpeza automática")' Feather/Views/Settings/Installation/InstallationView.swift
+          grep -q 'Label("Limpar cache após instalação"' Feather/Views/Settings/Installation/InstallationView.swift
+          grep -q 'Label("Também apagar importados e assinados"' Feather/Views/Settings/Installation/InstallationView.swift
+          grep -q 'Label("Limpar cache agora"' Feather/Views/Settings/SettingsView.swift
           ! grep -q 'Label("Apps monitorados"' Feather/Views/Settings/TweakCatalogView.swift
           ! grep -q 'private struct MonitoredAppsView' Feather/Views/Settings/TweakCatalogView.swift
-          grep -q 'Label("Cache e armazenamento"' Feather/Views/Settings/Installation/InstallationView.swift
-          ! grep -q 'Label("Cache e armazenamento"' Feather/Views/Settings/SettingsView.swift
-          ! grep -q 'Label("Conteúdo protegido"' Feather/Views/Settings/StorageCleanupView.swift
-          ! grep -q 'Label("Limpar cache agora"' Feather/Views/Settings/StorageCleanupView.swift
-          grep -q 'Label("Limpar cache agora"' Feather/Views/Settings/SettingsView.swift
           grep -q 'Versões e atualizações' Feather/Views/Settings/Backup/BackupView.swift
           grep -q 'com.lucas.ipa.repository' Feather/FeatherApp.swift
           grep -q 'https://feather-source.f8s79jzkbk.workers.dev/' Feather/FeatherApp.swift
@@ -115,7 +117,7 @@ jobs:
               path.write_text(text, encoding="utf-8")
           PY
 
-      - name: Configurar Feather 3.2.1 Stable NIGHTLY
+      - name: Configurar Feather 3.2.1 RC2 NIGHTLY
         run: |
           set -euo pipefail
           python3 <<'PY'
@@ -139,7 +141,7 @@ jobs:
               block = match.group(2)
               block, build_count = re.subn(
                   r'(^\s*CURRENT_PROJECT_VERSION\s*=\s*)[^;]+;',
-                  r'\g<1>30208;',
+                  r'\g<1>30209;',
                   block,
                   count=1,
                   flags=re.MULTILINE,
@@ -178,7 +180,7 @@ jobs:
           grep -q 'FEATHER_PRODUCT_BUNDLE_IDENTIFIER=com.feather.lucas' Feather.xcconfig
           grep -q 'SWIFT_ACTIVE_COMPILATION_CONDITIONS = ".*NIGHTLY' Feather.xcodeproj/project.pbxproj
 
-      - name: Compilar Feather 3.2.1 para iPhone
+      - name: Compilar Feather 3.2.1 RC2 para iPhone
         run: |
           set -o pipefail
           make iphoneos 2>&1 | tee feather-build.log
@@ -187,20 +189,20 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Feather-3.2.1-Candidate-build-log
+          name: Feather-3.2.1-RC2-build-log
           path: feather-build.log
           if-no-files-found: warn
           retention-days: 7
 
-      - name: Validar IPA 3.2.1 gerado
+      - name: Validar IPA 3.2.1 RC2 gerado
         run: |
           set -euo pipefail
           test -f packages/Feather.ipa
           unzip -t packages/Feather.ipa >/dev/null
-          rm -rf /tmp/feather-stable-321-validation
-          mkdir -p /tmp/feather-stable-321-validation
-          unzip -q packages/Feather.ipa -d /tmp/feather-stable-321-validation
-          APP_PLIST=$(find /tmp/feather-stable-321-validation/Payload -maxdepth 2 -name Info.plist -print -quit)
+          rm -rf /tmp/feather-stable-321-rc2-validation
+          mkdir -p /tmp/feather-stable-321-rc2-validation
+          unzip -q packages/Feather.ipa -d /tmp/feather-stable-321-rc2-validation
+          APP_PLIST=$(find /tmp/feather-stable-321-rc2-validation/Payload -maxdepth 2 -name Info.plist -print -quit)
           test -n "$APP_PLIST"
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PLIST")
           BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PLIST")
@@ -211,19 +213,19 @@ jobs:
           echo "Bundle ID: $BUNDLE_ID"
           echo "Nome: $DISPLAY_NAME"
           test "$VERSION" = "3.2.1"
-          test "$BUILD" = "30208"
+          test "$BUILD" = "30209"
           test "$BUNDLE_ID" = "com.feather.lucas"
           test "$DISPLAY_NAME" = "Feather"
-          cp packages/Feather.ipa Feather-3.2.1-Candidate.ipa
-          shasum -a 256 Feather-3.2.1-Candidate.ipa | tee Feather-3.2.1-Candidate.sha256
+          cp packages/Feather.ipa Feather-3.2.1-RC2.ipa
+          shasum -a 256 Feather-3.2.1-RC2.ipa | tee Feather-3.2.1-RC2.sha256
 
-      - name: Publicar artefato Feather 3.2.1 Candidate
+      - name: Publicar artefato Feather 3.2.1 RC2
         uses: actions/upload-artifact@v4
         with:
-          name: Feather-3.2.1-Candidate
+          name: Feather-3.2.1-RC2
           path: |
-            Feather-3.2.1-Candidate.ipa
-            Feather-3.2.1-Candidate.sha256
+            Feather-3.2.1-RC2.ipa
+            Feather-3.2.1-RC2.sha256
           if-no-files-found: error
           compression-level: 0
           retention-days: 30

@@ -83,6 +83,9 @@ struct SettingsView: View {
 					NavigationLink(destination: InstallationView()) {
 						Label(.localized("Installation"), systemImage: "arrow.down.circle")
 					}
+					NavigationLink(destination: UpdateEngineSettingsView()) {
+						Label("Atualizações automáticas", systemImage: "arrow.triangle.2.circlepath")
+					}
 					NavigationLink(destination: TweakCatalogView()) {
 						Label("Tweaks e atualizações", systemImage: "shippingbox")
 					}
@@ -174,7 +177,7 @@ extension SettingsView {
 		case 1: // idevice
 			let pairingPath = HeartbeatManager.pairingFile()
 			let pairingExists = FileManager.default.fileExists(atPath: pairingPath)
-			let pairingStatus = pairingExists ? "`Present`" : "`Not Present`"
+			let pairingStatus = pairingExists ? "`Present`"" : "`Not Present`"
 			configurationSection += "- Install method: `idevice`\n"
 			configurationSection += "  - Pairing file: \(pairingStatus)\n"
 		default:

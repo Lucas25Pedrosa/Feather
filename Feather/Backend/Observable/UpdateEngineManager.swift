@@ -53,6 +53,11 @@ final class UpdateEngineManager: ObservableObject {
 	static let shared = UpdateEngineManager()
 
 	@Published private(set) var states: [String: UpdateEngineJobState] = [:]
+	@Published private(set) var isBatchRunning = false
+	@Published private(set) var batchTotal = 0
+	@Published private(set) var batchProcessed = 0
+	@Published private(set) var batchFailed = 0
+	@Published private(set) var batchCurrentAppName: String?
 
 	private final class JobContext {
 		let update: AppUpdate
@@ -65,8 +70,18 @@ final class UpdateEngineManager: ObservableObject {
 	}
 
 	private var _jobs: [String: JobContext] = [:]
+	private var _batchQueue: [AppUpdate] = []
+	private var _batchCurrentID: String?
 
 	private init() {}
+
+	var batchSucceeded: Int {
+		max(0, batchProcessed - batchFailed)
+	}
+
+	var hasFinishedBatchSummary: Bool {
+		batchTotal > 0 && batchProcessed == batchTotal && !isBatchRunning
+	}
 
 	func state(for update: AppUpdate) -> UpdateEngineJobState {
 		states[update.localUUID] ?? UpdateEngineJobState()
@@ -79,6 +94,37 @@ final class UpdateEngineManager: ObservableObject {
 
 	@discardableResult
 	func start(_ update: AppUpdate) -> Bool {
+		if isBatchRunning, _batchCurrentID != update.localUUID {
+			return false
+		}
+		return _start(update)
+	}
+
+	@discardableResult
+	func startAll(_ updates: [AppUpdate]) -> Bool {
+		guard
+			UpdateEnginePreferences.shared.usableCertificate() != nil,
+			!isBatchRunning
+		else {
+			return false
+		}
+
+		let candidates = updates.filter { states[$0.localUUID]?.isActive != true }
+		guard !candidates.isEmpty else { return false }
+
+		_batchQueue = candidates
+		_batchCurrentID = nil
+		batchTotal = candidates.count
+		batchProcessed = 0
+		batchFailed = 0
+		batchCurrentAppName = nil
+		isBatchRunning = true
+		_startNextBatchItem()
+		return true
+	}
+
+	@discardableResult
+	private func _start(_ update: AppUpdate) -> Bool {
 		guard UpdateEnginePreferences.shared.usableCertificate() != nil else {
 			return false
 		}
@@ -168,10 +214,13 @@ final class UpdateEngineManager: ObservableObject {
 
 	func fail(jobID: String, message: String) {
 		guard _jobs[jobID] != nil || states[jobID] != nil else { return }
+		guard states[jobID]?.phase != .failed, states[jobID]?.phase != .completed else { return }
+
 		_jobs[jobID]?.downloadObserver = nil
 		_jobs[jobID]?.installer?.stop()
 		_jobs[jobID]?.installer = nil
 		_setState(jobID, phase: .failed, progress: 0, detail: message)
+		_batchItemFinished(jobID: jobID, success: false)
 	}
 
 	func clearState(for update: AppUpdate) {
@@ -209,11 +258,54 @@ final class UpdateEngineManager: ObservableObject {
 						self.fail(jobID: jobID, message: error.localizedDescription)
 					} else {
 						self._setState(jobID, phase: .completed, progress: 1, detail: "Concluído")
+						self._batchItemFinished(jobID: jobID, success: true)
 					}
 				}
 			}
 		} catch {
 			fail(jobID: jobID, message: error.localizedDescription)
+		}
+	}
+
+	private func _startNextBatchItem() {
+		guard isBatchRunning, _batchCurrentID == nil else { return }
+
+		guard !_batchQueue.isEmpty else {
+			isBatchRunning = false
+			batchCurrentAppName = nil
+			return
+		}
+
+		let next = _batchQueue.removeFirst()
+		_batchCurrentID = next.localUUID
+		batchCurrentAppName = next.appName
+
+		guard _start(next) else {
+			_setState(
+				next.localUUID,
+				phase: .failed,
+				progress: 0,
+				detail: "O certificado padrão não está disponível para esta atualização."
+			)
+			_batchItemFinished(jobID: next.localUUID, success: false)
+			return
+		}
+	}
+
+	private func _batchItemFinished(jobID: String, success: Bool) {
+		guard isBatchRunning, _batchCurrentID == jobID else { return }
+
+		batchProcessed += 1
+		if !success {
+			batchFailed += 1
+		}
+		_batchCurrentID = nil
+		batchCurrentAppName = nil
+
+		Task { [weak self] in
+			try? await Task.sleep(nanoseconds: 300_000_000)
+			guard !Task.isCancelled else { return }
+			self?._startNextBatchItem()
 		}
 	}
 

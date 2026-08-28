@@ -183,10 +183,15 @@ extension DownloadManager: URLSessionDownloadDelegate {
 			}
 			
 			DispatchQueue.main.async {
-				if let error = err,
-				   let jobID = UpdateEngineDownloadRoute.jobID(from: dl.id) {
-					Task { @MainActor in
-						UpdateEngineManager.shared.fail(jobID: jobID, error: error)
+				if let error = err {
+					if let jobID = UpdateEngineDownloadRoute.jobID(from: dl.id) {
+						Task { @MainActor in
+							UpdateEngineManager.shared.fail(jobID: jobID, error: error)
+						}
+					} else if let jobID = QuickInstallDownloadRoute.jobID(from: dl.id) {
+						Task { @MainActor in
+							QuickInstallManager.shared.fail(jobID: jobID, error: error)
+						}
 					}
 				}
 
@@ -228,6 +233,10 @@ extension DownloadManager: URLSessionDownloadDelegate {
 				Task { @MainActor in
 					UpdateEngineManager.shared.fail(jobID: jobID, error: error)
 				}
+			} else if let jobID = QuickInstallDownloadRoute.jobID(from: download.id) {
+				Task { @MainActor in
+					QuickInstallManager.shared.fail(jobID: jobID, error: error)
+				}
 			}
 		}
 	}
@@ -263,6 +272,10 @@ extension DownloadManager: URLSessionDownloadDelegate {
 			if let jobID = UpdateEngineDownloadRoute.jobID(from: download.id) {
 				Task { @MainActor in
 					UpdateEngineManager.shared.fail(jobID: jobID, error: error)
+				}
+			} else if let jobID = QuickInstallDownloadRoute.jobID(from: download.id) {
+				Task { @MainActor in
+					QuickInstallManager.shared.fail(jobID: jobID, error: error)
 				}
 			}
 

@@ -177,7 +177,7 @@ extension SettingsView {
 		case 1: // idevice
 			let pairingPath = HeartbeatManager.pairingFile()
 			let pairingExists = FileManager.default.fileExists(atPath: pairingPath)
-			let pairingStatus = pairingExists ? "`Present`"" : "`Not Present`"
+			let pairingStatus = pairingExists ? "`Present`" : "`Not Present`"
 			configurationSection += "- Install method: `idevice`\n"
 			configurationSection += "  - Pairing file: \(pairingStatus)\n"
 		default:

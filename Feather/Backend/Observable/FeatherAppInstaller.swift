@@ -79,7 +79,7 @@ final class FeatherAppInstaller: ObservableObject {
 			let app = app
 			let viewModel = viewModel
 			let packageURL = try await Task.detached(priority: .userInitiated) {
-				let handler = ArchiveHandler(app: app, viewModel: viewModel)
+				let handler = await ArchiveHandler(app: app, viewModel: viewModel)
 				try await handler.move()
 				return try await handler.archive()
 			}.value
@@ -152,7 +152,8 @@ final class FeatherAppInstaller: ObservableObject {
 		UIApplication.shared.open(url) { [weak self] opened in
 			guard !opened else { return }
 			Task { @MainActor in
-				self?._finish(self?._error("O iOS recusou o link de instalação."))
+				guard let self else { return }
+				self._finish(self._error("O iOS recusou o link de instalação."))
 			}
 		}
 	}
@@ -160,7 +161,7 @@ final class FeatherAppInstaller: ObservableObject {
 	private func _startProgressPolling() {
 		guard _progressTask == nil, let bundleID = app.identifier else { return }
 
-		_progressTask = Task.detached(priority: .background) { [weak self, viewModel] in
+		_progressTask = Task.detached(priority: .background) { [viewModel] in
 			var hasStarted = false
 
 			while !Task.isCancelled {
@@ -184,8 +185,6 @@ final class FeatherAppInstaller: ObservableObject {
 
 				try? await Task.sleep(nanoseconds: 250_000_000)
 			}
-
-			_ = self
 		}
 	}
 

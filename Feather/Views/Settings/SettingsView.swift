@@ -84,9 +84,6 @@ struct SettingsView: View {
 					NavigationLink(destination: InstallationView()) {
 						Label(.localized("Installation"), systemImage: "arrow.down.circle")
 					}
-					NavigationLink(destination: UpdateEngineSettingsView()) {
-						Label("Atualizações e instalação", systemImage: "arrow.triangle.2.circlepath")
-					}
 					NavigationLink(destination: TweakCatalogView()) {
 						Label("Tweaks e atualizações", systemImage: "shippingbox")
 					}

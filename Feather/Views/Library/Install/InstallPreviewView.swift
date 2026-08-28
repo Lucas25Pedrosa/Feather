@@ -215,6 +215,7 @@ struct InstallPreviewView: View {
 							}
 						}
 					}
+				}
 			} catch {
 				await progressTask?.cancel()
 				

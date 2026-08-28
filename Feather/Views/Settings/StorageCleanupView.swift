@@ -13,15 +13,7 @@ struct StorageCleanupView: View {
 	@AppStorage(StorageCleanupManager.automaticCleanupKey) private var _automaticCleanup = false
 
 	var body: some View {
-		NBList("Armazenamento") {
-			Section {
-				Toggle(isOn: $_automaticCleanup) {
-					Label("Limpar cache após instalação", systemImage: "sparkles")
-				}
-			} footer: {
-				Text("Quando ativado, o Feather limpa caches e resíduos temporários com segurança depois que uma instalação é concluída.")
-			}
-
+		NBList("Cache e armazenamento") {
 			Section {
 				Button {
 					Task {
@@ -29,7 +21,7 @@ struct StorageCleanupView: View {
 					}
 				} label: {
 					HStack {
-						Label("Liberar espaço agora", systemImage: "trash.slash")
+						Label("Limpar cache agora", systemImage: "trash.slash")
 						Spacer()
 						if cleanupManager.isCleaning {
 							ProgressView()
@@ -39,13 +31,27 @@ struct StorageCleanupView: View {
 				.disabled(cleanupManager.isCleaning)
 
 				if let report = cleanupManager.lastReport {
-					LabeledContent("Última limpeza") {
+					LabeledContent("Espaço liberado") {
 						Text(_formattedSize(report.bytesFreed))
 							.foregroundStyle(.secondary)
 					}
 				}
 			} footer: {
-				Text("Remove cache de rede, cache interno e arquivos temporários abandonados do Feather. Aplicativos importados ou assinados, certificados, sources, tweaks, histórico de atualizações e backups não são apagados.")
+				Text("Remove manualmente caches de rede, cache interno e resíduos temporários seguros do Feather.")
+			}
+
+			Section {
+				Toggle(isOn: $_automaticCleanup) {
+					Label("Limpar cache após instalação", systemImage: "sparkles")
+				}
+			} footer: {
+				Text("Quando ativado, o Feather executa a mesma limpeza segura automaticamente depois que uma instalação é concluída.")
+			}
+
+			Section {
+				Label("Conteúdo protegido", systemImage: "checkmark.shield")
+			} footer: {
+				Text("Aplicativos importados ou assinados, certificados, sources, tweaks, histórico de atualizações e backups não são apagados pela limpeza de cache.")
 			}
 		}
 	}

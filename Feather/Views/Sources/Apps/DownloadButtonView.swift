@@ -35,6 +35,10 @@ struct DownloadButtonView: View {
 		updatePreferences.usableCertificate() != nil || _quickState.phase != .idle
 	}
 
+	private var _quickProgress: Double {
+		min(1, max(0, _quickState.progress))
+	}
+
 	var body: some View {
 		ZStack {
 			if _usesQuickInstall {
@@ -49,6 +53,7 @@ struct DownloadButtonView: View {
 			setupObserver()
 		}
 		.animation(.easeInOut(duration: 0.3), value: _quickState.phase)
+		.animation(.smooth, value: _quickState.progress)
 		.animation(.easeInOut(duration: 0.3), value: downloadManager.getDownload(by: app.currentUniqueId) != nil)
 	}
 
@@ -56,15 +61,37 @@ struct DownloadButtonView: View {
 	private var _quickInstallControl: some View {
 		if _quickState.isActive {
 			HStack(spacing: 7) {
-				ProgressView()
-				Text(_quickTitle)
+				if _quickState.phase == .downloading {
+					Image(systemName: "arrow.down")
+						.font(.caption.bold())
+				} else {
+					ProgressView()
+				}
+				Text(_quickActiveTitle)
 					.lineLimit(1)
 			}
 			.font(.subheadline.weight(.semibold))
-			.foregroundStyle(.secondary)
+			.foregroundStyle(_quickState.phase == .downloading ? Color.primary : Color.secondary)
 			.padding(.horizontal, 12)
 			.padding(.vertical, 6)
-			.background(Color(uiColor: .quaternarySystemFill))
+			.background {
+				ZStack(alignment: .leading) {
+					Capsule()
+						.fill(Color(uiColor: .quaternarySystemFill))
+
+					if _quickState.phase == .downloading {
+						GeometryReader { geometry in
+							RoundedRectangle(
+								cornerRadius: geometry.size.height / 2,
+								style: .continuous
+							)
+							.fill(Color.accentColor.opacity(0.22))
+							.frame(width: geometry.size.width * _quickProgress)
+						}
+						.clipShape(Capsule())
+					}
+				}
+			}
 			.clipShape(Capsule())
 			.compatTransition()
 		} else {
@@ -123,6 +150,13 @@ struct DownloadButtonView: View {
 			.buttonStyle(.borderless)
 			.compatTransition()
 		}
+	}
+
+	private var _quickActiveTitle: String {
+		if _quickState.phase == .downloading {
+			return "Baixando \(Int(_quickProgress * 100))%"
+		}
+		return _quickTitle
 	}
 
 	private var _quickTitle: String {

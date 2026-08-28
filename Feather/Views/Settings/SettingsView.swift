@@ -92,8 +92,11 @@ struct SettingsView: View {
 					NavigationLink(destination: BackupView()) {
 						Label(.localized("Backup & Restore"), systemImage: "icloud")
 					}
+					NavigationLink(destination: StorageCleanupView()) {
+						Label("Cache e armazenamento", systemImage: "internaldrive")
+					}
 				} footer: {
-					Text(.localized("Configure signing, installation, archives, and encrypted update-history backups."))
+					Text(.localized("Configure signing, installation, archives, encrypted update-history backups, and cache cleanup."))
 				}
 
 				_directories()

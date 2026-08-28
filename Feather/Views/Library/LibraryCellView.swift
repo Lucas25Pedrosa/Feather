@@ -14,6 +14,8 @@ struct LibraryCellView: View {
 	@Environment(\.horizontalSizeClass) private var horizontalSizeClass
 	@Environment(\.editMode) private var editMode
 	@ObservedObject private var updateManager = UpdateManager.shared
+	@ObservedObject private var quickInstall = QuickInstallManager.shared
+	@ObservedObject private var updatePreferences = UpdateEnginePreferences.shared
 
 	var certInfo: Date.ExpirationInfo? {
 		Storage.shared.getCertificate(from: app)?.expiration?.expirationInfo()
@@ -33,6 +35,26 @@ struct LibraryCellView: View {
 	private var _isSelected: Bool {
 		guard let uuid = app.uuid else { return false }
 		return selectedAppUUIDs.contains(uuid)
+	}
+
+	private var _quickState: QuickInstallJobState {
+		guard let uuid = app.uuid else { return QuickInstallJobState() }
+		return quickInstall.state(for: uuid)
+	}
+
+	private var _canQuickInstall: Bool {
+		!app.isSigned && updatePreferences.usableCertificate() != nil
+	}
+
+	private var _quickTitle: String {
+		switch _quickState.phase {
+		case .downloading: return "Baixando"
+		case .signing: return "Assinando"
+		case .installing: return "Instalando"
+		case .completed: return "Concluído"
+		case .failed: return "Tentar novamente"
+		case .idle: return .localized("Install")
+		}
 	}
 	
 	private func _toggleSelection() {
@@ -171,6 +193,13 @@ extension LibraryCellView {
 				selectedInstallAppPresenting = AnyApp(base: app, archive: true)
 			}
 		} else {
+			if _canQuickInstall || _quickState.phase != .idle {
+				Button("Instalação rápida", systemImage: "bolt.fill") {
+					_startQuickInstall(app)
+				}
+				.disabled(_quickState.isActive || _quickState.phase == .completed)
+			}
+
 			Button(.localized("Install"), systemImage: "square.and.arrow.down") {
 				selectedInstallAppPresenting = AnyApp(base: app)
 			}
@@ -203,6 +232,17 @@ extension LibraryCellView {
 						expiration: nil
 					)
 				}
+			} else if _canQuickInstall || _quickState.phase != .idle {
+				Button {
+					_startQuickInstall(app)
+				} label: {
+					FRExpirationPillView(
+						title: _quickTitle,
+						revoked: false,
+						expiration: nil
+					)
+				}
+				.disabled(_quickState.isActive || _quickState.phase == .completed)
 			} else {
 				Button {
 					selectedSigningAppPresenting = AnyApp(base: app)
@@ -216,6 +256,12 @@ extension LibraryCellView {
 			}
 		}
 		.buttonStyle(.borderless)
+	}
+
+	private func _startQuickInstall(_ app: AppInfoPresentable) {
+		if !quickInstall.startImported(app) {
+			selectedSigningAppPresenting = AnyApp(base: app)
+		}
 	}
 	
 	private func _startUpdateDownload(_ update: AppUpdate) {

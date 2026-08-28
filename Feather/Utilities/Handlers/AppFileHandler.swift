@@ -139,12 +139,15 @@ final class AppFileHandler: NSObject, @unchecked Sendable {
 					userInfo: ["uuid": _uuid]
 				)
 			}
-		} else if
-			let downloadID = _download?.id,
-			let jobID = UpdateEngineDownloadRoute.jobID(from: downloadID)
-		{
-			await MainActor.run {
-				UpdateEngineManager.shared.importedAppReady(uuid: _uuid, jobID: jobID)
+		} else if let downloadID = _download?.id {
+			if let jobID = UpdateEngineDownloadRoute.jobID(from: downloadID) {
+				await MainActor.run {
+					UpdateEngineManager.shared.importedAppReady(uuid: _uuid, jobID: jobID)
+				}
+			} else if let jobID = QuickInstallDownloadRoute.jobID(from: downloadID) {
+				await MainActor.run {
+					QuickInstallManager.shared.importedAppReady(uuid: _uuid, jobID: jobID)
+				}
 			}
 		}
 	}

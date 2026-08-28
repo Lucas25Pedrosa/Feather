@@ -116,10 +116,9 @@ jobs:
             Feather-3.2.1-Stable.ipa \
             Feather-3.2.1-Stable.sha256 \
             --repo "$GITHUB_REPOSITORY" \
-            --target 3f1ba36afcc14a5fc6a98171ce05d98cea2b14b7 \
+            --target "$GITHUB_SHA" \
             --title "Feather 3.2.1" \
-            --notes-file RELEASE_NOTES.md \
-            --latest
+            --notes-file RELEASE_NOTES.md
 
       - name: Confirmar publicação
         env:

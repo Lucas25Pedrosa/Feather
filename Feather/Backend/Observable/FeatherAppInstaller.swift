@@ -137,23 +137,30 @@ final class FeatherAppInstaller: ObservableObject {
 			return
 		}
 
-		let url: URL?
-		if _serverMethod == 1 {
-			url = server.pageEndpoint
-		} else {
-			url = URL(string: server.iTunesLink)
-		}
-
-		guard let url else {
+		let primaryLink = _serverMethod == 1 ? server.iTunesLinkExternal : server.iTunesLink
+		guard let primaryURL = URL(string: primaryLink) else {
 			_finish(_error("Não foi possível gerar o link de instalação."))
 			return
 		}
 
-		UIApplication.shared.open(url) { [weak self] opened in
+		UIApplication.shared.open(primaryURL) { [weak self] opened in
+			guard let self else { return }
 			guard !opened else { return }
+
 			Task { @MainActor in
-				guard let self else { return }
-				self._finish(self._error("O iOS recusou o link de instalação."))
+				// Semi Local keeps the local redirect page only as a compatibility
+				// fallback for iOS builds that refuse the direct itms-services URL.
+				if self._serverMethod == 1 {
+					UIApplication.shared.open(server.pageEndpoint) { fallbackOpened in
+						if !fallbackOpened {
+							Task { @MainActor in
+								self._finish(self._error("O iOS recusou o link de instalação."))
+							}
+						}
+					}
+				} else {
+					self._finish(self._error("O iOS recusou o link de instalação."))
+				}
 			}
 		}
 	}

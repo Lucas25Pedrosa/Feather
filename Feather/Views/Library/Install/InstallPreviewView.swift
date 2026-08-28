@@ -20,6 +20,7 @@ struct InstallPreviewView: View {
 	@State private var _isWebviewPresenting = false
 	@State private var progressTask: Task<Void, Never>?
 	@State private var _didRecordInstallation = false
+	@State private var _installWorkDirectory: URL?
 	
 	var app: AppInfoPresentable
 	@StateObject var viewModel: InstallerStatusViewModel
@@ -68,6 +69,8 @@ struct InstallPreviewView: View {
 				if didRecord {
 					UpdateManager.shared.reconcileInstallation(of: app)
 				}
+				_cleanupInstallWorkspace()
+				StorageCleanupManager.shared.scheduleAutomaticCleanup()
 			}
 			
 			if _installationMethod == 0 {
@@ -93,9 +96,16 @@ struct InstallPreviewView: View {
 				}
 				
 				switch newStatus {
-				case .completed, .broken(_):
+				case .completed:
 					progressTask?.cancel()
 					progressTask = nil
+					#if !targetEnvironment(macCatalyst)
+					BackgroundAudioManager.shared.stop()
+					#endif
+				case .broken(_):
+					progressTask?.cancel()
+					progressTask = nil
+					_cleanupInstallWorkspace()
 					#if !targetEnvironment(macCatalyst)
 					BackgroundAudioManager.shared.stop()
 					#endif
@@ -163,6 +173,9 @@ struct InstallPreviewView: View {
 				try await handler.move()
 				
 				let packageUrl = try await handler.archive()
+				await MainActor.run {
+					_installWorkDirectory = packageUrl.deletingLastPathComponent()
+				}
 				
 				if await !isSharing {
 					if await _installationMethod == 0 {
@@ -190,21 +203,23 @@ struct InstallPreviewView: View {
 					
 					if await !_useShareSheet {
 						await MainActor.run {
+							_cleanupInstallWorkspace()
 							dismiss()
 						}
 					} else {
 						if let package {
 							await MainActor.run {
+								_cleanupInstallWorkspace()
 								dismiss()
 								UIActivityViewController.show(activityItems: [package])
 							}
 						}
 					}
-				}
 			} catch {
 				await progressTask?.cancel()
 				
 				await MainActor.run {
+					_cleanupInstallWorkspace()
 					UIAlertController.showAlertWithOk(
 						title: .localized("Install"),
 						message: String(describing: error),
@@ -216,6 +231,12 @@ struct InstallPreviewView: View {
 				}
 			}
 		}
+	}
+
+	private func _cleanupInstallWorkspace() {
+		guard let workDirectory = _installWorkDirectory else { return }
+		try? FileManager.default.removeItem(at: workDirectory)
+		_installWorkDirectory = nil
 	}
 	
 	private func startInstallProgressPolling(

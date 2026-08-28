@@ -1,231 +1,131 @@
-name: Build Feather 3.2.1 RC2
+name: Publish Feather 3.2.1 Stable
 
 on:
   workflow_dispatch:
   push:
     branches:
       - stable/3.2.1
+    paths:
+      - .github/workflows/build-stable-3.2.1.yml
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
-  build:
+  publish:
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout
+      - name: Checkout da base validada
         uses: actions/checkout@v4
         with:
-          ref: stable/3.2.1
-          submodules: recursive
+          ref: 3f1ba36afcc14a5fc6a98171ce05d98cea2b14b7
+          fetch-depth: 0
 
-      - name: Aplicar ajustes Feather 3.2.1 RC2
+      - name: Baixar exatamente o artefato RC2 validado
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 .github/scripts/apply_321_rc2.py
-          python3 .github/scripts/fix_backup_beta.py
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/9691067548/zip" \
+            > Feather-3.2.1-RC2.zip
 
-          if ! git diff --quiet; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add Feather Feather.xcconfig
-            git commit -m "[skip ci] Apply Feather 3.2.1 RC2 layout"
-            git push origin HEAD:stable/3.2.1
-          fi
+          rm -rf rc2
+          mkdir rc2
+          unzip -q Feather-3.2.1-RC2.zip -d rc2
+          test -f rc2/Feather-3.2.1-RC2.ipa
 
-      - name: Validar ajustes 3.2.1 RC2
+      - name: Validar identidade e hash da RC2
         run: |
           set -euo pipefail
-          grep -q 'FEATHER_PROJECT_VERSION=3.2.1' Feather.xcconfig
-          ! grep -q 'NavigationLink(destination: UpdateEngineSettingsView())' Feather/Views/Settings/SettingsView.swift
-          ! grep -q 'NavigationLink(destination: StorageCleanupView())' Feather/Views/Settings/Installation/InstallationView.swift
-          grep -q 'Text("Comportamento")' Feather/Views/Settings/Installation/InstallationView.swift
-          grep -q 'Label("Assinatura manual"' Feather/Views/Settings/Installation/InstallationView.swift
-          grep -q 'Text("Certificado padrão")' Feather/Views/Settings/Installation/InstallationView.swift
-          grep -q 'Text("Limpeza automática")' Feather/Views/Settings/Installation/InstallationView.swift
-          grep -q 'Label("Limpar cache após instalação"' Feather/Views/Settings/Installation/InstallationView.swift
-          grep -q 'Label("Também apagar importados e assinados"' Feather/Views/Settings/Installation/InstallationView.swift
-          grep -q 'Label("Limpar cache agora"' Feather/Views/Settings/SettingsView.swift
-          ! grep -q 'Label("Apps monitorados"' Feather/Views/Settings/TweakCatalogView.swift
-          ! grep -q 'private struct MonitoredAppsView' Feather/Views/Settings/TweakCatalogView.swift
-          grep -q 'Versões e atualizações' Feather/Views/Settings/Backup/BackupView.swift
-          grep -q 'com.lucas.ipa.repository' Feather/FeatherApp.swift
-          grep -q 'https://feather-source.f8s79jzkbk.workers.dev/' Feather/FeatherApp.swift
-          grep -q 'Configure assinatura, instalação, arquivos' Feather/Views/Settings/SettingsView.swift
 
-      - name: Selecionar Xcode 26.2 do build validado
-        run: |
-          set -euo pipefail
-          XCODE_PATH=""
-          for candidate in /Applications/Xcode_26.2.app /Applications/Xcode_26.2.0.app
-          do
-            if [ -d "$candidate" ]; then
-              XCODE_PATH="$candidate"
-              break
-            fi
-          done
-          if [ -z "$XCODE_PATH" ]; then
-            echo 'ERRO: Xcode 26.2 não está instalado neste runner.'
-            ls -1 /Applications | grep '^Xcode' || true
-            exit 1
-          fi
-          sudo xcode-select -s "$XCODE_PATH"
-          test "$(xcodebuild -version | sed -n '1p')" = "Xcode 26.2"
-          test "$(xcodebuild -version | sed -n '2p')" = "Build version 17C52"
-          xcodebuild -version
+          EXPECTED_SHA="2823db3b583597a07e91539c428bc6f5785d4d71ef24764ab0d3a66c870dbaf8"
+          ACTUAL_SHA=$(shasum -a 256 rc2/Feather-3.2.1-RC2.ipa | awk '{print $1}')
+          echo "SHA-256 RC2: $ACTUAL_SHA"
+          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
 
-      - name: Travar dependências oficiais
-        run: |
-          set -euo pipefail
-          RESOLVED='Feather.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved'
-          test -f "$RESOLVED"
-          python3 <<'PY'
-          from pathlib import Path
-          import json
+          unzip -t rc2/Feather-3.2.1-RC2.ipa >/dev/null
+          rm -rf /tmp/feather-321-stable-validation
+          mkdir -p /tmp/feather-321-stable-validation
+          unzip -q rc2/Feather-3.2.1-RC2.ipa -d /tmp/feather-321-stable-validation
 
-          resolved = Path("Feather.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved")
-          data = json.loads(resolved.read_text(encoding="utf-8"))
-          pins = {item["identity"]: item["state"].get("version") for item in data["pins"]}
-          expected = {
-              "apikit": "5.4.0",
-              "async-http-client": "1.25.2",
-              "nuke": "12.8.0",
-              "swift-nio": "2.82.1",
-              "swift-system": "1.4.2",
-              "vapor": "4.104.0",
-              "zip": "2.1.2",
-          }
-          for package, version in expected.items():
-              actual = pins.get(package)
-              if actual != version:
-                  raise SystemExit(f"ERRO: {package}: esperado {version}, encontrado {actual}.")
-          print(f"Package.resolved carregado com {len(data['pins'])} dependências.")
-          PY
-
-          python3 <<'PY'
-          from pathlib import Path
-          path = Path("Makefile")
-          text = path.read_text(encoding="utf-8")
-          flag = "-disableAutomaticPackageResolution"
-          if flag not in text:
-              needle = "\t\t-skipPackagePluginValidation \\\n"
-              if needle not in text:
-                  raise SystemExit("ERRO: ponto de inserção para travar os pacotes não encontrado.")
-              text = text.replace(needle, needle + "\t\t-disableAutomaticPackageResolution \\\n", 1)
-              path.write_text(text, encoding="utf-8")
-          PY
-
-      - name: Configurar Feather 3.2.1 RC2 NIGHTLY
-        run: |
-          set -euo pipefail
-          python3 <<'PY'
-          from pathlib import Path
-          import re
-
-          project = Path("Feather.xcodeproj/project.pbxproj")
-          text = project.read_text(encoding="utf-8")
-          target_configs = {
-              "3379C1CE2DA869A3004372DA": "Debug",
-              "3379C1CF2DA869A3004372DA": "Release",
-          }
-          for config_id, config_name in target_configs.items():
-              pattern = re.compile(
-                  rf"({re.escape(config_id)} /\* {config_name} \*/ = \{{.*?buildSettings = \{{\n)(.*?)(\n\t\t\t\}};\n\t\t\tname = {config_name};)",
-                  re.DOTALL,
-              )
-              match = pattern.search(text)
-              if not match:
-                  raise SystemExit(f"ERRO: configuração {config_name} não encontrada.")
-              block = match.group(2)
-              block, build_count = re.subn(
-                  r'(^\s*CURRENT_PROJECT_VERSION\s*=\s*)[^;]+;',
-                  r'\g<1>30209;',
-                  block,
-                  count=1,
-                  flags=re.MULTILINE,
-              )
-              if build_count != 1:
-                  raise SystemExit(f"ERRO: build não encontrado em {config_name}.")
-              block, name_count = re.subn(
-                  r'(^\s*INFOPLIST_KEY_CFBundleDisplayName\s*=\s*)[^;]+;',
-                  r'\g<1>Feather;',
-                  block,
-                  count=1,
-                  flags=re.MULTILINE,
-              )
-              if name_count != 1:
-                  raise SystemExit(f"ERRO: nome do app não encontrado em {config_name}.")
-              condition_pattern = re.compile(
-                  r'(^\s*SWIFT_ACTIVE_COMPILATION_CONDITIONS\s*=\s*)(".*?"|[^;]*)(;)',
-                  re.MULTILINE,
-              )
-              condition_match = condition_pattern.search(block)
-              if not condition_match:
-                  raise SystemExit(f"ERRO: condições Swift não encontradas em {config_name}.")
-              raw = condition_match.group(2).strip()
-              value = raw[1:-1] if raw.startswith('"') and raw.endswith('"') else raw
-              tokens = [token for token in value.split() if token]
-              if "NIGHTLY" not in tokens:
-                  tokens.append("NIGHTLY")
-              replacement = condition_match.group(1) + f'"{" ".join(tokens)}"' + condition_match.group(3)
-              block = block[:condition_match.start()] + replacement + block[condition_match.end():]
-              text = text[:match.start(2)] + block + text[match.end(2):]
-          project.write_text(text, encoding="utf-8")
-          PY
-
-          grep -q '#if !NIGHTLY && !DEBUG' Feather/Views/Settings/SettingsView.swift
-          grep -q 'FEATHER_PROJECT_VERSION=3.2.1' Feather.xcconfig
-          grep -q 'FEATHER_PRODUCT_BUNDLE_IDENTIFIER=com.feather.lucas' Feather.xcconfig
-          grep -q 'SWIFT_ACTIVE_COMPILATION_CONDITIONS = ".*NIGHTLY' Feather.xcodeproj/project.pbxproj
-
-      - name: Compilar Feather 3.2.1 RC2 para iPhone
-        run: |
-          set -o pipefail
-          make iphoneos 2>&1 | tee feather-build.log
-
-      - name: Publicar log da compilação
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Feather-3.2.1-RC2-build-log
-          path: feather-build.log
-          if-no-files-found: warn
-          retention-days: 7
-
-      - name: Validar IPA 3.2.1 RC2 gerado
-        run: |
-          set -euo pipefail
-          test -f packages/Feather.ipa
-          unzip -t packages/Feather.ipa >/dev/null
-          rm -rf /tmp/feather-stable-321-rc2-validation
-          mkdir -p /tmp/feather-stable-321-rc2-validation
-          unzip -q packages/Feather.ipa -d /tmp/feather-stable-321-rc2-validation
-          APP_PLIST=$(find /tmp/feather-stable-321-rc2-validation/Payload -maxdepth 2 -name Info.plist -print -quit)
+          APP_PLIST=$(find /tmp/feather-321-stable-validation/Payload -maxdepth 2 -name Info.plist -print -quit)
           test -n "$APP_PLIST"
+
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_PLIST")
           BUILD=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP_PLIST")
           BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PLIST")
           DISPLAY_NAME=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP_PLIST")
+
           echo "Versão: $VERSION"
           echo "Build: $BUILD"
           echo "Bundle ID: $BUNDLE_ID"
           echo "Nome: $DISPLAY_NAME"
+
           test "$VERSION" = "3.2.1"
           test "$BUILD" = "30209"
           test "$BUNDLE_ID" = "com.feather.lucas"
           test "$DISPLAY_NAME" = "Feather"
-          cp packages/Feather.ipa Feather-3.2.1-RC2.ipa
-          shasum -a 256 Feather-3.2.1-RC2.ipa | tee Feather-3.2.1-RC2.sha256
 
-      - name: Publicar artefato Feather 3.2.1 RC2
-        uses: actions/upload-artifact@v4
-        with:
-          name: Feather-3.2.1-RC2
-          path: |
-            Feather-3.2.1-RC2.ipa
-            Feather-3.2.1-RC2.sha256
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 30
+          cp rc2/Feather-3.2.1-RC2.ipa Feather-3.2.1-Stable.ipa
+          shasum -a 256 Feather-3.2.1-Stable.ipa | tee Feather-3.2.1-Stable.sha256
+
+      - name: Preparar notas da versão
+        run: |
+          cat > RELEASE_NOTES.md <<'EOF'
+          # Feather 3.2.1
+
+          Versão estável promovida diretamente da RC2 validada em dispositivo real.
+
+          Ajustes desta versão:
+          - IPA Library adicionada como source padrão do Feather;
+          - catálogo de tweaks configurado para a IPA Library;
+          - remoção da categoria redundante Apps monitorados;
+          - Gerenciar apps instalados passa a ser a referência para detecção de atualizações;
+          - ajustes de organização e tradução no menu de Ajustes;
+          - opções de assinatura e certificado padrão integradas diretamente em Instalação;
+          - Limpeza automática integrada diretamente em Instalação;
+          - opção para limpar cache após instalação e, opcionalmente, apagar cópias Importadas e Assinadas;
+          - Backup e Restauração passa a indicar explicitamente Versões e atualizações;
+          - preservação do botão Limpar cache agora no menu principal de Ajustes.
+
+          Versão: 3.2.1
+          Build: 30209
+          Bundle ID: com.feather.lucas
+          Build interna: NIGHTLY
+          SHA-256: 2823db3b583597a07e91539c428bc6f5785d4d71ef24764ab0d3a66c870dbaf8
+          EOF
+
+      - name: Publicar release v3.2.1
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          if gh release view v3.2.1 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "ERRO: release v3.2.1 já existe."
+            exit 1
+          fi
+
+          gh release create v3.2.1 \
+            Feather-3.2.1-Stable.ipa \
+            Feather-3.2.1-Stable.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --target 3f1ba36afcc14a5fc6a98171ce05d98cea2b14b7 \
+            --title "Feather 3.2.1" \
+            --notes-file RELEASE_NOTES.md \
+            --latest
+
+      - name: Confirmar publicação
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release view v3.2.1 \
+            --repo "$GITHUB_REPOSITORY" \
+            --json tagName,name,isDraft,isPrerelease,url,assets

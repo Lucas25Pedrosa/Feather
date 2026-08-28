@@ -11,51 +11,6 @@ import IDeviceSwift
 import OSLog
 import UIKit
 
-private struct FeatherInstalledAppSnapshot: Equatable, Sendable {
-	let bundleURL: String?
-	let modificationTime: TimeInterval?
-}
-
-private enum FeatherInstalledAppLookup {
-	static func snapshot(for identifier: String) -> FeatherInstalledAppSnapshot? {
-		let classNameBase64 = "TFNBcHBsaWNhdGlvblByb3h5" // LSApplicationProxy
-		let proxySelectorBase64 = "YXBwbGljYXRpb25Qcm94eUZvcklkZW50aWZpZXI6" // applicationProxyForIdentifier:
-		let bundleURLSelectorBase64 = "YnVuZGxlVVJM" // bundleURL
-		let modTimeSelectorBase64 = "YnVuZGxlTW9kVGltZQ==" // bundleModTime
-
-		guard
-			let classNameData = Data(base64Encoded: classNameBase64),
-			let proxySelectorData = Data(base64Encoded: proxySelectorBase64),
-			let bundleURLSelectorData = Data(base64Encoded: bundleURLSelectorBase64),
-			let modTimeSelectorData = Data(base64Encoded: modTimeSelectorBase64),
-			let className = String(data: classNameData, encoding: .utf8),
-			let proxySelector = String(data: proxySelectorData, encoding: .utf8),
-			let bundleURLSelector = String(data: bundleURLSelectorData, encoding: .utf8),
-			let modTimeSelector = String(data: modTimeSelectorData, encoding: .utf8),
-			let proxyClass = NSClassFromString(className) as? NSObject.Type,
-			let proxy = proxyClass.perform(
-				NSSelectorFromString(proxySelector),
-				with: identifier
-			)?.takeUnretainedValue() as? NSObject
-		else {
-			return nil
-		}
-
-		let bundleURL = proxy.perform(
-			NSSelectorFromString(bundleURLSelector)
-		)?.takeUnretainedValue() as? URL
-		let modificationDate = proxy.perform(
-			NSSelectorFromString(modTimeSelector)
-		)?.takeUnretainedValue() as? Date
-
-		guard bundleURL != nil || modificationDate != nil else { return nil }
-		return FeatherInstalledAppSnapshot(
-			bundleURL: bundleURL?.absoluteString,
-			modificationTime: modificationDate?.timeIntervalSince1970
-		)
-	}
-}
-
 @MainActor
 final class FeatherAppInstaller: ObservableObject {
 	let app: AppInfoPresentable
@@ -63,7 +18,6 @@ final class FeatherAppInstaller: ObservableObject {
 
 	private let _installationMethod: Int
 	private let _serverMethod: Int
-	private let _initialInstallSnapshot: FeatherInstalledAppSnapshot?
 	private var _server: ServerInstaller?
 	private var _statusObserver: AnyCancellable?
 	private var _progressTask: Task<Void, Never>?
@@ -77,9 +31,6 @@ final class FeatherAppInstaller: ObservableObject {
 		self._installationMethod = UserDefaults.standard.integer(forKey: "Feather.installationMethod")
 		self._serverMethod = UserDefaults.standard.integer(forKey: "Feather.serverMethod")
 		self.viewModel = InstallerStatusViewModel(isIdevice: _installationMethod == 1)
-		self._initialInstallSnapshot = app.identifier.flatMap {
-			FeatherInstalledAppLookup.snapshot(for: $0)
-		}
 
 		if _installationMethod == 0 {
 			self._server = try ServerInstaller(app: app, viewModel: viewModel)
@@ -217,43 +168,31 @@ final class FeatherAppInstaller: ObservableObject {
 
 	private func _startProgressPolling() {
 		guard _progressTask == nil, let bundleID = app.identifier else { return }
-		let initialSnapshot = _initialInstallSnapshot
 
-		// ServerInstaller only emits .installing after streamFile finished
-		// successfully. At this point the full IPA has already been delivered
-		// to installd. Some iOS releases never publish LS installProgress for
-		// sideloaded replacements, so a bounded grace period is used as the
-		// final fallback instead of leaving Feather stuck forever.
+		// Match Feather's original installation completion detection exactly:
+		// observe LS installProgress very frequently, remember when it becomes
+		// positive, and complete only after it returns to zero.
 		_progressTask = Task.detached(priority: .background) { [viewModel] in
 			var hasStarted = false
-			let startedAt = Date()
-			let fallbackDelay: TimeInterval = 10
 
 			while !Task.isCancelled {
-				let elapsed = Date().timeIntervalSince(startedAt)
-				let raw = await UIApplication.installProgress(for: bundleID) ?? 0.0
-				if raw > 0 { hasStarted = true }
+				let rawProgress = await UIApplication.installProgress(for: bundleID) ?? 0.0
 
-				let nativeProgress = hasStarted
-					? min(1.0, max(0.0, (raw - 0.6) / 0.3))
-					: 0.0
-				let fallbackProgress = min(0.95, max(0.05, elapsed / fallbackDelay * 0.95))
-				let visibleProgress = hasStarted ? nativeProgress : fallbackProgress
-
-				let currentSnapshot = await MainActor.run {
-					FeatherInstalledAppLookup.snapshot(for: bundleID)
+				if rawProgress > 0 {
+					hasStarted = true
 				}
-				let didReplaceApplication = currentSnapshot != nil && currentSnapshot != initialSnapshot
 
-				Logger.misc.info(
-					"3.2 install verification for \(bundleID): native=\(nativeProgress), replacement=\(didReplaceApplication), elapsed=\(elapsed)"
-				)
+				let progress = hasStarted
+					? min(1.0, max(0.0, (rawProgress - 0.6) / 0.3))
+					: 0.0
+
+				Logger.misc.info("Install progress for \(bundleID): \(progress)")
 
 				await MainActor.run {
-					viewModel.installProgress = visibleProgress
+					viewModel.installProgress = progress
 				}
 
-				if (hasStarted && raw == 0) || didReplaceApplication {
+				if hasStarted && rawProgress == 0 {
 					await MainActor.run {
 						viewModel.installProgress = 1.0
 						viewModel.status = .completed(.success(()))
@@ -261,18 +200,7 @@ final class FeatherAppInstaller: ObservableObject {
 					break
 				}
 
-				if elapsed >= fallbackDelay {
-					Logger.misc.info(
-						"Completing \(bundleID) using payload-delivered fallback after \(elapsed)s"
-					)
-					await MainActor.run {
-						viewModel.installProgress = 1.0
-						viewModel.status = .completed(.success(()))
-					}
-					break
-				}
-
-				try? await Task.sleep(nanoseconds: 250_000_000)
+				try? await Task.sleep(nanoseconds: 1_000_000) // 1 ms, as in Feather original
 			}
 		}
 	}

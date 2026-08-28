@@ -11,6 +11,51 @@ import IDeviceSwift
 import OSLog
 import UIKit
 
+private struct FeatherInstalledAppSnapshot: Equatable, Sendable {
+	let bundleURL: String?
+	let modificationTime: TimeInterval?
+}
+
+private enum FeatherInstalledAppLookup {
+	static func snapshot(for identifier: String) -> FeatherInstalledAppSnapshot? {
+		let classNameBase64 = "TFNBcHBsaWNhdGlvblByb3h5" // LSApplicationProxy
+		let proxySelectorBase64 = "YXBwbGljYXRpb25Qcm94eUZvcklkZW50aWZpZXI6" // applicationProxyForIdentifier:
+		let bundleURLSelectorBase64 = "YnVuZGxlVVJM" // bundleURL
+		let modTimeSelectorBase64 = "YnVuZGxlTW9kVGltZQ==" // bundleModTime
+
+		guard
+			let classNameData = Data(base64Encoded: classNameBase64),
+			let proxySelectorData = Data(base64Encoded: proxySelectorBase64),
+			let bundleURLSelectorData = Data(base64Encoded: bundleURLSelectorBase64),
+			let modTimeSelectorData = Data(base64Encoded: modTimeSelectorBase64),
+			let className = String(data: classNameData, encoding: .utf8),
+			let proxySelector = String(data: proxySelectorData, encoding: .utf8),
+			let bundleURLSelector = String(data: bundleURLSelectorData, encoding: .utf8),
+			let modTimeSelector = String(data: modTimeSelectorData, encoding: .utf8),
+			let proxyClass = NSClassFromString(className) as? NSObject.Type,
+			let proxy = proxyClass.perform(
+				NSSelectorFromString(proxySelector),
+				with: identifier
+			)?.takeUnretainedValue() as? NSObject
+		else {
+			return nil
+		}
+
+		let bundleURL = proxy.perform(
+			NSSelectorFromString(bundleURLSelector)
+		)?.takeUnretainedValue() as? URL
+		let modificationDate = proxy.perform(
+			NSSelectorFromString(modTimeSelector)
+		)?.takeUnretainedValue() as? Date
+
+		guard bundleURL != nil || modificationDate != nil else { return nil }
+		return FeatherInstalledAppSnapshot(
+			bundleURL: bundleURL?.absoluteString,
+			modificationTime: modificationDate?.timeIntervalSince1970
+		)
+	}
+}
+
 @MainActor
 final class FeatherAppInstaller: ObservableObject {
 	let app: AppInfoPresentable
@@ -18,10 +63,12 @@ final class FeatherAppInstaller: ObservableObject {
 
 	private let _installationMethod: Int
 	private let _serverMethod: Int
+	private let _initialInstallSnapshot: FeatherInstalledAppSnapshot?
 	private var _server: ServerInstaller?
 	private var _statusObserver: AnyCancellable?
 	private var _progressTask: Task<Void, Never>?
 	private var _completion: ((Error?) -> Void)?
+	private var _installWorkDirectory: URL?
 	private var _finished = false
 	private var _didRecordInstallation = false
 
@@ -30,6 +77,9 @@ final class FeatherAppInstaller: ObservableObject {
 		self._installationMethod = UserDefaults.standard.integer(forKey: "Feather.installationMethod")
 		self._serverMethod = UserDefaults.standard.integer(forKey: "Feather.serverMethod")
 		self.viewModel = InstallerStatusViewModel(isIdevice: _installationMethod == 1)
+		self._initialInstallSnapshot = app.identifier.flatMap {
+			FeatherInstalledAppLookup.snapshot(for: $0)
+		}
 
 		if _installationMethod == 0 {
 			self._server = try ServerInstaller(app: app, viewModel: viewModel)
@@ -69,6 +119,7 @@ final class FeatherAppInstaller: ObservableObject {
 		_statusObserver = nil
 		_progressTask?.cancel()
 		_progressTask = nil
+		_cleanupInstallWorkspace()
 		#if !targetEnvironment(macCatalyst)
 		BackgroundAudioManager.shared.stop()
 		#endif
@@ -83,6 +134,7 @@ final class FeatherAppInstaller: ObservableObject {
 				try await handler.move()
 				return try await handler.archive()
 			}.value
+			_installWorkDirectory = packageURL.deletingLastPathComponent()
 
 			if _installationMethod == 1 {
 				let proxy = InstallationProxy(viewModel: viewModel)
@@ -167,25 +219,52 @@ final class FeatherAppInstaller: ObservableObject {
 
 	private func _startProgressPolling() {
 		guard _progressTask == nil, let bundleID = app.identifier else { return }
+		let initialSnapshot = _initialInstallSnapshot
 
 		_progressTask = Task.detached(priority: .background) { [viewModel] in
 			var hasStarted = false
+			var pollCount = 0
 
 			while !Task.isCancelled {
+				pollCount += 1
 				let raw = await UIApplication.installProgress(for: bundleID) ?? 0.0
 				if raw > 0 { hasStarted = true }
 
 				let normalized = hasStarted ? min(1.0, max(0.0, (raw - 0.6) / 0.3)) : 0.0
-				Logger.misc.info("3.2 update install progress for \(bundleID): \(normalized)")
+				let currentSnapshot = await MainActor.run {
+					FeatherInstalledAppLookup.snapshot(for: bundleID)
+				}
+				let didReplaceApplication = currentSnapshot != nil && currentSnapshot != initialSnapshot
+
+				Logger.misc.info(
+					"3.2 install progress for \(bundleID): \(normalized), replacement: \(didReplaceApplication)"
+				)
 
 				await MainActor.run {
 					viewModel.installProgress = normalized
 				}
 
-				if hasStarted, raw == 0 {
+				// Some iOS builds never expose a positive LS install progress value.
+				// In that case, a changed LSApplicationProxy bundle URL/modification
+				// timestamp is the reliable signal that the replacement finished.
+				if (hasStarted && raw == 0) || (didReplaceApplication && pollCount >= 4) {
 					await MainActor.run {
 						viewModel.installProgress = 1.0
 						viewModel.status = .completed(.success(()))
+					}
+					break
+				}
+
+				// Never leave the Feather UI indefinitely in "Installing" if iOS
+				// refuses to expose either progress or a LaunchServices replacement.
+				if pollCount >= 240 {
+					let error = NSError(
+						domain: "Feather.UpdateInstaller",
+						code: -2,
+						userInfo: [NSLocalizedDescriptionKey: "Não foi possível confirmar a conclusão da instalação no iOS."]
+					)
+					await MainActor.run {
+						viewModel.status = .broken(error)
 					}
 					break
 				}
@@ -208,16 +287,27 @@ final class FeatherAppInstaller: ObservableObject {
 		}
 	}
 
+	private func _cleanupInstallWorkspace() {
+		guard let workDirectory = _installWorkDirectory else { return }
+		try? FileManager.default.removeItem(at: workDirectory)
+		_installWorkDirectory = nil
+	}
+
 	private func _finish(_ error: Error?) {
 		guard !_finished else { return }
 		_finished = true
 		_statusObserver = nil
 		_progressTask?.cancel()
 		_progressTask = nil
+		_cleanupInstallWorkspace()
 
 		#if !targetEnvironment(macCatalyst)
 		BackgroundAudioManager.shared.stop()
 		#endif
+
+		if error == nil {
+			StorageCleanupManager.shared.scheduleAutomaticCleanup()
+		}
 
 		let completion = _completion
 		_completion = nil

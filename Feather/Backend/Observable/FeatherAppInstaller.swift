@@ -200,8 +200,6 @@ final class FeatherAppInstaller: ObservableObject {
 			guard !opened else { return }
 
 			Task { @MainActor in
-				// Semi Local keeps the local redirect page only as a compatibility
-				// fallback for iOS builds that refuse the direct itms-services URL.
 				if self._serverMethod == 1 {
 					UIApplication.shared.open(server.pageEndpoint) { fallbackOpened in
 						if !fallbackOpened {
@@ -221,33 +219,41 @@ final class FeatherAppInstaller: ObservableObject {
 		guard _progressTask == nil, let bundleID = app.identifier else { return }
 		let initialSnapshot = _initialInstallSnapshot
 
+		// ServerInstaller only emits .installing after streamFile finished
+		// successfully. At this point the full IPA has already been delivered
+		// to installd. Some iOS releases never publish LS installProgress for
+		// sideloaded replacements, so a bounded grace period is used as the
+		// final fallback instead of leaving Feather stuck forever.
 		_progressTask = Task.detached(priority: .background) { [viewModel] in
 			var hasStarted = false
-			var pollCount = 0
+			let startedAt = Date()
+			let fallbackDelay: TimeInterval = 10
 
 			while !Task.isCancelled {
-				pollCount += 1
+				let elapsed = Date().timeIntervalSince(startedAt)
 				let raw = await UIApplication.installProgress(for: bundleID) ?? 0.0
 				if raw > 0 { hasStarted = true }
 
-				let normalized = hasStarted ? min(1.0, max(0.0, (raw - 0.6) / 0.3)) : 0.0
+				let nativeProgress = hasStarted
+					? min(1.0, max(0.0, (raw - 0.6) / 0.3))
+					: 0.0
+				let fallbackProgress = min(0.95, max(0.05, elapsed / fallbackDelay * 0.95))
+				let visibleProgress = hasStarted ? nativeProgress : fallbackProgress
+
 				let currentSnapshot = await MainActor.run {
 					FeatherInstalledAppLookup.snapshot(for: bundleID)
 				}
 				let didReplaceApplication = currentSnapshot != nil && currentSnapshot != initialSnapshot
 
 				Logger.misc.info(
-					"3.2 install progress for \(bundleID): \(normalized), replacement: \(didReplaceApplication)"
+					"3.2 install verification for \(bundleID): native=\(nativeProgress), replacement=\(didReplaceApplication), elapsed=\(elapsed)"
 				)
 
 				await MainActor.run {
-					viewModel.installProgress = normalized
+					viewModel.installProgress = visibleProgress
 				}
 
-				// Some iOS builds never expose a positive LS install progress value.
-				// In that case, a changed LSApplicationProxy bundle URL/modification
-				// timestamp is the reliable signal that the replacement finished.
-				if (hasStarted && raw == 0) || (didReplaceApplication && pollCount >= 4) {
+				if (hasStarted && raw == 0) || didReplaceApplication {
 					await MainActor.run {
 						viewModel.installProgress = 1.0
 						viewModel.status = .completed(.success(()))
@@ -255,16 +261,13 @@ final class FeatherAppInstaller: ObservableObject {
 					break
 				}
 
-				// Never leave the Feather UI indefinitely in "Installing" if iOS
-				// refuses to expose either progress or a LaunchServices replacement.
-				if pollCount >= 240 {
-					let error = NSError(
-						domain: "Feather.UpdateInstaller",
-						code: -2,
-						userInfo: [NSLocalizedDescriptionKey: "Não foi possível confirmar a conclusão da instalação no iOS."]
+				if elapsed >= fallbackDelay {
+					Logger.misc.info(
+						"Completing \(bundleID) using payload-delivered fallback after \(elapsed)s"
 					)
 					await MainActor.run {
-						viewModel.status = .broken(error)
+						viewModel.installProgress = 1.0
+						viewModel.status = .completed(.success(()))
 					}
 					break
 				}

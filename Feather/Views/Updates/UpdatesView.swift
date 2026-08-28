@@ -219,6 +219,7 @@ private struct UpdateCellView: View {
 	@Environment(\.horizontalSizeClass) private var horizontalSizeClass
 	@ObservedObject private var downloadManager = DownloadManager.shared
 	@ObservedObject private var updateManager = UpdateManager.shared
+	@ObservedObject private var updateEngine = UpdateEngineManager.shared
 	@State private var _isChangelogExpanded = false
 
 	let update: AppUpdate
@@ -227,8 +228,16 @@ private struct UpdateCellView: View {
 		"FeatherManualDownload_Update_\(update.localUUID)"
 	}
 
-	private var _isDownloading: Bool {
+	private var _isManualDownloading: Bool {
 		downloadManager.getDownload(by: _downloadID) != nil
+	}
+
+	private var _engineState: UpdateEngineJobState {
+		updateEngine.state(for: update)
+	}
+
+	private var _isBusy: Bool {
+		_isManualDownloading || _engineState.isActive
 	}
 
 	private var _subtitle: String {
@@ -283,6 +292,17 @@ private struct UpdateCellView: View {
 		return value
 	}
 
+	private var _engineTitle: String {
+		switch _engineState.phase {
+		case .downloading: return "Baixando"
+		case .signing: return "Assinando"
+		case .installing: return "Instalando"
+		case .completed: return "Concluído"
+		case .failed: return "Tentar novamente"
+		case .idle: return .localized("Update")
+		}
+	}
+
 	var body: some View {
 		let isRegular = horizontalSizeClass != .compact
 
@@ -300,17 +320,28 @@ private struct UpdateCellView: View {
 						Spacer(minLength: 8)
 
 						Button {
-							_startUpdateDownload()
+							_startUpdate()
 						} label: {
 							Group {
-								if _isDownloading {
+								if _isManualDownloading {
 									ProgressView()
 										.frame(minWidth: 48)
+								} else if _engineState.isActive {
+									HStack(spacing: 7) {
+										ProgressView()
+										Text(_engineTitle)
+											.lineLimit(1)
+									}
+									.font(.subheadline.weight(.semibold))
+									.padding(.horizontal, 12)
+									.padding(.vertical, 6)
+									.background(Color(uiColor: .quaternarySystemFill))
+									.clipShape(Capsule())
 								} else {
-									Text(.localized("Update"))
+									Text(_engineTitle)
 										.lineLimit(1)
 										.font(.headline.bold())
-										.foregroundStyle(Color.accentColor)
+										.foregroundStyle(_engineState.phase == .failed ? Color.orange : Color.accentColor)
 										.padding(.horizontal, 18)
 										.padding(.vertical, 6)
 										.background(Color(uiColor: .quaternarySystemFill))
@@ -319,7 +350,7 @@ private struct UpdateCellView: View {
 							}
 						}
 						.buttonStyle(.borderless)
-						.disabled(_isDownloading)
+						.disabled(_isBusy || _engineState.phase == .completed)
 
 						Menu {
 							Button(.localized("Hide This Update"), systemImage: "eye.slash") {
@@ -333,6 +364,7 @@ private struct UpdateCellView: View {
 								.frame(width: 24, height: 32)
 						}
 						.buttonStyle(.borderless)
+						.disabled(_engineState.isActive)
 					}
 
 					Text(_subtitle)
@@ -340,6 +372,10 @@ private struct UpdateCellView: View {
 						.foregroundStyle(.secondary)
 						.lineLimit(2)
 						.fixedSize(horizontal: false, vertical: true)
+
+					if _engineState.phase != .idle {
+						_engineStatusView
+					}
 				}
 			}
 
@@ -367,12 +403,53 @@ private struct UpdateCellView: View {
 		)
 	}
 
+	@ViewBuilder
+	private var _engineStatusView: some View {
+		switch _engineState.phase {
+		case .downloading:
+			VStack(alignment: .leading, spacing: 4) {
+				ProgressView(value: _engineState.progress)
+				Text("Baixando • \(Int(_engineState.progress * 100))%")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+		case .signing:
+			Label("Assinando", systemImage: "signature")
+				.font(.caption)
+				.foregroundStyle(.secondary)
+		case .installing:
+			VStack(alignment: .leading, spacing: 4) {
+				if _engineState.progress > 0 {
+					ProgressView(value: _engineState.progress)
+				}
+				Label("Instalando", systemImage: "arrow.down.app")
+					.font(.caption)
+					.foregroundStyle(.secondary)
+			}
+		case .completed:
+			Label("Atualização concluída", systemImage: "checkmark.circle.fill")
+				.font(.caption)
+				.foregroundStyle(.green)
+		case .failed:
+			Label(_engineState.detail ?? "A atualização falhou.", systemImage: "exclamationmark.triangle.fill")
+				.font(.caption)
+				.foregroundStyle(.orange)
+				.fixedSize(horizontal: false, vertical: true)
+		case .idle:
+			EmptyView()
+		}
+	}
+
 	private func _releaseText(version: String, build: String?) -> String {
 		guard let build, !build.isEmpty else { return version }
 		return "\(version) (\(build))"
 	}
 
-	private func _startUpdateDownload() {
+	private func _startUpdate() {
+		if updateEngine.start(update) {
+			return
+		}
+
 		_ = downloadManager.startDownload(
 			from: update.downloadURL,
 			id: _downloadID,

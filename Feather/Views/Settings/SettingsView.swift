@@ -15,6 +15,7 @@ import IDeviceSwift
 struct SettingsView: View {
 	@AppStorage("feather.selectedCert") private var _storedSelectedCert: Int = 0
 	@State private var _currentIcon: String? = UIApplication.shared.alternateIconName
+	@StateObject private var _cleanupManager = StorageCleanupManager.shared
 
 	// MARK: Fetch
 	@FetchRequest(
@@ -97,6 +98,29 @@ struct SettingsView: View {
 					}
 				} footer: {
 					Text(.localized("Configure signing, installation, archives, encrypted update-history backups, and cache cleanup."))
+				}
+
+				NBSection("Armazenamento") {
+					Button {
+						Task {
+							await _cleanupManager.cleanNow()
+						}
+					} label: {
+						HStack {
+							Label("Limpar cache agora", systemImage: "trash.slash")
+							Spacer()
+							if _cleanupManager.isCleaning {
+								ProgressView()
+							}
+						}
+					}
+					.disabled(_cleanupManager.isCleaning)
+				} footer: {
+					if let report = _cleanupManager.lastReport {
+						Text("Última limpeza liberou \(ByteCountFormatter.string(fromByteCount: report.bytesFreed, countStyle: .file)).")
+					} else {
+						Text("Remove cache e resíduos temporários seguros sem apagar apps, certificados, sources, tweaks ou backups.")
+					}
 				}
 
 				_directories()

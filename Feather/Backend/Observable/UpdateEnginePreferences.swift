@@ -5,6 +5,7 @@
 //  Feather 3.2 automatic update preferences.
 //
 
+import Combine
 import Foundation
 
 @MainActor

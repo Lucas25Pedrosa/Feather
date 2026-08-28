@@ -132,7 +132,7 @@ struct BackupView: View {
 						)
 					)
 					Toggle(
-						.localized("Updates"),
+						"Versões e atualizações",
 						isOn: Binding(
 							get: { backupManager.includeUpdateHistory },
 							set: { backupManager.setIncludeUpdateHistory($0) }
@@ -141,7 +141,7 @@ struct BackupView: View {
 				} header: {
 					Text(.localized("Backup Content"))
 				} footer: {
-					Text(.localized("Choose Sources, Updates, or both. Sources are restored by merging and existing sources are not duplicated."))
+					Text("Escolha Fontes, Versões e atualizações, ou ambos. Versões e atualizações incluem as versões registradas dos apps e tweaks usadas para detectar novas versões. As fontes são restauradas por mesclagem e não são duplicadas.")
 				}
 				
 				Section {
@@ -179,7 +179,7 @@ struct BackupView: View {
 						)
 						
 						Toggle(.localized("Sources"), isOn: $_restoreSources)
-						Toggle(.localized("Updates"), isOn: $_restoreUpdates)
+						Toggle("Versões e atualizações", isOn: $_restoreUpdates)
 						
 						Button(.localized("Restore Backup"), systemImage: "arrow.counterclockwise.icloud") {
 							_isRestoreConfirmationPresented = true

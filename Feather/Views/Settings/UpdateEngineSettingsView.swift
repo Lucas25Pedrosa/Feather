@@ -75,7 +75,7 @@ struct UpdateEngineSettingsView: View {
 				}
 			}
 		}
-		.navigationTitle("Atualizações automáticas")
+		.navigationTitle("Atualizações e instalação")
 	}
 
 	private func _isExpired(_ certificate: CertificatePair) -> Bool {

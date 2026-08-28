@@ -85,7 +85,7 @@ struct SettingsView: View {
 						Label(.localized("Installation"), systemImage: "arrow.down.circle")
 					}
 					NavigationLink(destination: UpdateEngineSettingsView()) {
-						Label("Atualizações automáticas", systemImage: "arrow.triangle.2.circlepath")
+						Label("Atualizações e instalação", systemImage: "arrow.triangle.2.circlepath")
 					}
 					NavigationLink(destination: TweakCatalogView()) {
 						Label("Tweaks e atualizações", systemImage: "shippingbox")
@@ -93,11 +93,8 @@ struct SettingsView: View {
 					NavigationLink(destination: BackupView()) {
 						Label(.localized("Backup & Restore"), systemImage: "icloud")
 					}
-					NavigationLink(destination: StorageCleanupView()) {
-						Label("Cache e armazenamento", systemImage: "internaldrive")
-					}
 				} footer: {
-					Text(.localized("Configure signing, installation, archives, encrypted update-history backups, and cache cleanup."))
+					Text("Configure assinatura, instalação, arquivos, backups criptografados do histórico de atualizações e limpeza de cache.")
 				}
 
 				NBSection("Armazenamento") {

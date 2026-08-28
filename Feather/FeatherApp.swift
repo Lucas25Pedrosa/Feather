@@ -152,6 +152,7 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 		_createPipeline()
 		_createDocumentsDirectories()
 		ResetView.clearWorkCache()
+		_addDefaultIPALibrarySource()
 		_addDefaultCertificates()
 		return true
 	}
@@ -194,6 +195,37 @@ class AppDelegate: NSObject, UIApplicationDelegate {
 		}
 	}
 	
+	private func _addDefaultIPALibrarySource() {
+		let defaults = UserDefaults.standard
+		let didSeedKey = "Feather.didAddDefaultIPALibrarySource"
+		guard !defaults.bool(forKey: didSeedKey) else { return }
+
+		guard let sourceURL = URL(string: "https://feather-source.f8s79jzkbk.workers.dev/") else {
+			return
+		}
+		let identifier = "com.lucas.ipa.repository"
+
+		let alreadyExists = Storage.shared.sourceExists(identifier)
+			|| Storage.shared.getSources().contains { $0.sourceURL == sourceURL }
+		if alreadyExists {
+			defaults.set(true, forKey: didSeedKey)
+			return
+		}
+
+		Storage.shared.addSource(
+			sourceURL,
+			name: "IPA Library",
+			identifier: identifier,
+			iconURL: URL(string: "https://raw.githubusercontent.com/Lucas25Pedrosa/ipa-r2-automation/main/Feather/icons/repo.png")
+		) { error in
+			if error == nil {
+				defaults.set(true, forKey: didSeedKey)
+			} else if let error {
+				Logger.misc.error("Failed to seed IPA Library source: \(error)")
+			}
+		}
+	}
+
 	private func _addDefaultCertificates() {
 		guard
 			UserDefaults.standard.bool(forKey: "feather.didImportDefaultCertificates") == false,

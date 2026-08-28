@@ -75,19 +75,11 @@ struct TweakCatalogView: View {
 			}
 			
 			Section {
-				NavigationLink(destination: MonitoredAppsView()) {
-					Label("Apps monitorados", systemImage: "eye")
-				}
-			} footer: {
-				Text("Escolha quais aplicativos das suas fontes o Feather deve acompanhar para tweaks, atualizações e badge.")
-			}
-			
-			Section {
 				NavigationLink(destination: InstalledTweaksView()) {
 					Label("Tweaks instalados", systemImage: "puzzlepiece.extension")
 				}
 			} footer: {
-				Text("Consulte e ajuste o tweak registrado em cada app monitorado, mantendo separadas a versão instalada e a versão disponível no catálogo.")
+				Text("Consulte e ajuste o tweak registrado em cada app instalado, mantendo separadas a versão instalada e a versão disponível no catálogo.")
 			}
 		}
 		.navigationTitle("Tweaks e atualizações")
@@ -126,12 +118,10 @@ struct TweakCatalogView: View {
 
 private struct InstalledTweaksView: View {
 	@StateObject private var _catalog = TweakCatalogManager.shared
-	@StateObject private var _monitoring = SourceMonitoringPreferences.shared
 	@ObservedObject private var _registry = InstallationRegistry.shared
 	
 	private var _records: [InstalledSourceAppRecord] {
 		_registry.records
-			.filter { _monitoring.isMonitored($0.localBundleIdentifier) }
 			.sorted {
 				($0.appName ?? $0.localBundleIdentifier)
 					.localizedCaseInsensitiveCompare($1.appName ?? $1.localBundleIdentifier) == .orderedAscending
@@ -142,7 +132,7 @@ private struct InstalledTweaksView: View {
 		List {
 			if _records.isEmpty {
 				Section {
-					Text("Nenhum app monitorado possui informação de tweak disponível no momento.")
+					Text("Nenhum app instalado possui informação de tweak disponível no momento.")
 						.foregroundStyle(.secondary)
 				}
 			} else {
@@ -179,57 +169,6 @@ private struct InstalledTweaksView: View {
 		}
 		let source = record.packageMetadataSource == .source ? "Automático" : "Manual"
 		return "\(label) · \(source)"
-	}
-}
-
-private struct MonitoredAppsView: View {
-	@StateObject private var _monitoring = SourceMonitoringPreferences.shared
-	@StateObject private var _updates = UpdateManager.shared
-	
-	var body: some View {
-		List {
-			if _updates.sourceApps.isEmpty {
-				Section {
-					HStack(spacing: 10) {
-						ProgressView()
-						Text("Carregando apps das fontes…")
-							.foregroundStyle(.secondary)
-					}
-				}
-			} else {
-				Section {
-					ForEach(_updates.sourceApps) { app in
-						Toggle(
-							isOn: Binding(
-								get: { _monitoring.isMonitored(app.bundleIdentifier) },
-								set: { enabled in
-									_monitoring.setMonitored(enabled, bundleIdentifier: app.bundleIdentifier)
-									_updates.applyMonitoringPreferences()
-									if enabled {
-										Task {
-											await _updates.checkForUpdates(sources: Storage.shared.getSources())
-										}
-									}
-								}
-							)
-						) {
-							VStack(alignment: .leading, spacing: 2) {
-								Text(app.name)
-								Text(app.bundleIdentifier)
-									.font(.caption2)
-									.foregroundStyle(.secondary)
-							}
-						}
-					}
-				} footer: {
-					Text("Desative um app para ocultá-lo de Tweaks instalados e impedir que suas atualizações entrem na lista ou no badge. O app continua disponível normalmente nas Fontes e seu registro é preservado.")
-				}
-			}
-		}
-		.navigationTitle("Apps monitorados")
-		.task {
-			await _updates.checkForUpdates(sources: Storage.shared.getSources())
-		}
 	}
 }
 

@@ -33,7 +33,7 @@ struct InstallationView: View {
 
 			Section {
 				NavigationLink(destination: StorageCleanupView()) {
-					Label("Armazenamento e cache", systemImage: "internaldrive")
+					Label("Cache e armazenamento", systemImage: "internaldrive")
 				}
 			} footer: {
 				Text("Libere espaço usado por caches e temporários do Feather ou ative a limpeza automática após cada instalação.")

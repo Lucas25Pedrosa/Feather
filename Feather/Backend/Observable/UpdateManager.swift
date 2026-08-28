@@ -216,12 +216,10 @@ final class UpdateManager: ObservableObject {
 			sourceApps = discoveredSourceApps
 		}
 
-		let monitoredRecords = InstallationRegistry.shared.records.filter {
-			SourceMonitoringPreferences.shared.isMonitored($0.localBundleIdentifier)
-		}
+		let installedRecords = InstallationRegistry.shared.records
 		let freshUpdates = _findUpdates(
 			repositories: fetchResult.repositories,
-			installedApps: monitoredRecords
+			installedApps: installedRecords
 		)
 
 		// Preserve entries belonging to sources that temporarily failed while
@@ -237,9 +235,7 @@ final class UpdateManager: ObservableObject {
 	}
 
 	func applyMonitoringPreferences() {
-		updates = updates.filter { _, update in
-			SourceMonitoringPreferences.shared.isMonitored(update.localBundleIdentifier)
-		}
+		// Feather 3.2.1: InstallationRegistry is the single tracking authority.
 	}
 
 	private func _candidateUpdate(for app: AppInfoPresentable) -> AppUpdate? {

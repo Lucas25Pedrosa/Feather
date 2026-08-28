@@ -183,6 +183,13 @@ extension DownloadManager: URLSessionDownloadDelegate {
 			}
 			
 			DispatchQueue.main.async {
+				if let error = err,
+				   let jobID = UpdateEngineDownloadRoute.jobID(from: dl.id) {
+					Task { @MainActor in
+						UpdateEngineManager.shared.fail(jobID: jobID, error: error)
+					}
+				}
+
 				if let index = DownloadManager.shared.getDownloadIndex(by: dl.id) {
 					DownloadManager.shared.downloads.remove(at: index)
 					
@@ -217,6 +224,11 @@ extension DownloadManager: URLSessionDownloadDelegate {
 			try handlePachageFile(url: destinationURL, dl: download)
 		} catch {
 			print("Error handling downloaded file: \(error.localizedDescription)")
+			if let jobID = UpdateEngineDownloadRoute.jobID(from: download.id) {
+				Task { @MainActor in
+					UpdateEngineManager.shared.fail(jobID: jobID, error: error)
+				}
+			}
 		}
 	}
 	
@@ -240,7 +252,7 @@ extension DownloadManager: URLSessionDownloadDelegate {
 	
 	func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
 		guard
-			let _ = error,
+			let error,
 			let downloadTask = task as? URLSessionDownloadTask,
 			let download = getDownloadTask(by: downloadTask)
 		else {
@@ -248,6 +260,12 @@ extension DownloadManager: URLSessionDownloadDelegate {
 		}
 		
 		DispatchQueue.main.async {
+			if let jobID = UpdateEngineDownloadRoute.jobID(from: download.id) {
+				Task { @MainActor in
+					UpdateEngineManager.shared.fail(jobID: jobID, error: error)
+				}
+			}
+
 			if let index = self.getDownloadIndex(by: download.id) {
 				self.downloads.remove(at: index)
 			}

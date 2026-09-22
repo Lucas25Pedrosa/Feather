@@ -379,3 +379,4 @@
 "Authenticate" = "Autenticar";
 "Authentication" = "Autenticação";
 "Authentication successful." = "Autenticação concluída com sucesso.";
+"Deauthenticate" = "Desautenticar";

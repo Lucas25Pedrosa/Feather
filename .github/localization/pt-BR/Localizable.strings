@@ -373,3 +373,9 @@
 "The downloaded backup is invalid or the recovery key is incorrect." = "O backup baixado é inválido ou a chave de recuperação está incorreta.";
 "This backup was created by an unsupported backup format." = "Este backup foi criado em um formato de backup não compatível.";
 "A backup operation is already in progress." = "Uma operação de backup já está em andamento.";
+"Authentication Status" = "Status da autenticação";
+"Authenticated" = "Autenticado";
+"Not Authenticated" = "Não autenticado";
+"Authenticate" = "Autenticar";
+"Authentication" = "Autenticação";
+"Authentication successful." = "Autenticação concluída com sucesso.";

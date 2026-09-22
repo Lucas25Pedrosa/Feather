@@ -24,12 +24,13 @@ final class UpdateEnginePreferences: ObservableObject {
 
 	private init() {
 		let defaults = UserDefaults.standard
-		defaultCertificateUUID = defaults.string(forKey: Self._certificateKey)
+		let storedDefaultCertificateUUID = defaults.string(forKey: Self._certificateKey)
+		defaultCertificateUUID = storedDefaultCertificateUUID
 
 		if defaults.object(forKey: Self.quickInstallKey) != nil {
 			quickInstallEnabled = defaults.bool(forKey: Self.quickInstallKey)
 		} else {
-			quickInstallEnabled = defaultCertificateUUID != nil
+			quickInstallEnabled = storedDefaultCertificateUUID != nil
 		}
 	}
 

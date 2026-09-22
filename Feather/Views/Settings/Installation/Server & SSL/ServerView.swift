@@ -50,7 +50,11 @@ struct ServerView: View {
 					)
 					.foregroundColor(_isAuthenticated ? .green : .red)
 					
-					if !_isAuthenticated {
+					if _isAuthenticated {
+						Button(.localized("Deauthenticate")) {
+							_deauthenticate()
+						}
+					} else {
 						SecureField(
 							.localized("Enter Password"),
 							text: $_password
@@ -75,6 +79,19 @@ struct ServerView: View {
 extension ServerView {
 	private func _refreshAuthenticationState() {
 		_isAuthenticated = FileManager.default.hasFullyLocalTLS
+	}
+	
+	private func _deauthenticate() {
+		do {
+			try FileManager.default.removeFullyLocalTLS()
+			_password = ""
+			_refreshAuthenticationState()
+		} catch {
+			UIAlertController.showAlertWithOk(
+				title: .localized("Authentication"),
+				message: error.localizedDescription
+			)
+		}
 	}
 	
 	private func _authenticate() {

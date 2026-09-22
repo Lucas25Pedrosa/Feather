@@ -14,7 +14,7 @@ struct PredefinedCustomizationsView: View {
 	@StateObject private var _manager = CustomizationPresetManager.shared
 
 	var body: some View {
-		NBList("Personalizações predefinidas") {
+		NBList("Personalizações") {
 			Section {
 				NavigationLink {
 					CustomizationSourceAppPickerView()

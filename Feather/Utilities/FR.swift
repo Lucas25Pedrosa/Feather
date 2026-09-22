@@ -5,7 +5,7 @@
 //  Created by samara on 22.04.2025.
 //
 
-import Foundation.NSURL
+import Foundation
 import UIKit.UIImage
 import Zsign
 import NimbleJSON

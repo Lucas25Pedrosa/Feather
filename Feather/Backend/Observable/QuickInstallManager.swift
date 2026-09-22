@@ -77,7 +77,8 @@ final class QuickInstallManager: ObservableObject {
 	}
 
 	var hasUsableCertificate: Bool {
-		UpdateEnginePreferences.shared.usableCertificate() != nil
+		let preferences = UpdateEnginePreferences.shared
+		return preferences.quickInstallEnabled && preferences.usableCertificate() != nil
 	}
 
 	@discardableResult
@@ -185,7 +186,7 @@ final class QuickInstallManager: ObservableObject {
 	private func _beginSigning(_ app: AppInfoPresentable, jobID: String) {
 		guard let context = _jobs[jobID] else { return }
 		guard let certificate = UpdateEnginePreferences.shared.usableCertificate() else {
-			fail(jobID: jobID, message: "O certificado padrão não está mais disponível ou expirou.")
+			fail(jobID: jobID, message: "O certificado da Instalação rápida não está mais disponível ou expirou.")
 			return
 		}
 
@@ -195,10 +196,15 @@ final class QuickInstallManager: ObservableObject {
 		options.post_installAppAfterSigned = false
 		options.post_deleteAppAfterSigned = false
 
+		let customizations = CustomizationPresetManager.shared
+		customizations.apply(to: &options, for: app)
+		let customIcon = customizations.customIcon(for: app)
+		let expectedSignedIdentifier = options.appIdentifier ?? context.expectedBundleIdentifier
+
 		FR.signPackageFile(
 			app,
 			using: options,
-			icon: nil,
+			icon: customIcon,
 			certificate: certificate
 		) { [weak self] error in
 			Task { @MainActor in
@@ -210,7 +216,7 @@ final class QuickInstallManager: ObservableObject {
 
 				guard let signed = self._newSignedApp(
 					excluding: signedBefore,
-					preferredBundleIdentifier: context.expectedBundleIdentifier
+					preferredBundleIdentifier: expectedSignedIdentifier
 				) else {
 					self.fail(jobID: jobID, message: "A assinatura terminou, mas o app assinado não foi localizado.")
 					return

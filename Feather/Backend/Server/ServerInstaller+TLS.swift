@@ -86,16 +86,10 @@ extension ServerInstaller {
 extension ServerInstaller {
 	static func getUrl(_ name: String, ext: String) -> URL? {
 		let fileManager = FileManager.default
+		let url = fileManager.fullyLocalTLS("\(name).\(ext)")
 		
-		let documentsURL = URL.documentsDirectory.appendingPathComponent("\(name).\(ext)")
-		let bundlesURL = Bundle.main.url(forResource: name, withExtension: ext)
-		
-		if fileManager.fileExists(atPath: documentsURL.path) {
-			return documentsURL
-		}
-		
-		if let bundlesURL, fileManager.fileExists(atPath: bundlesURL.path) {
-			return bundlesURL
+		if fileManager.fileExists(atPath: url.path) {
+			return url
 		}
 		
 		return nil

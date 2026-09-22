@@ -110,6 +110,19 @@ final class CustomizationPresetManager: ObservableObject {
 		presets.first { _matches($0, target: target) }
 	}
 
+	func preset(for provenance: SourceAppProvenance) -> SourceCustomizationPreset? {
+		let target = SourceCustomizationTarget(
+			sourceRepositoryURL: provenance.sourceRepositoryURL,
+			sourceRepositoryIdentifier: provenance.sourceRepositoryIdentifier,
+			sourceRepositoryName: provenance.sourceRepositoryName,
+			sourceAppIdentifier: provenance.sourceAppIdentifier,
+			sourceAppName: provenance.sourceAppName ?? provenance.sourceAppIdentifier,
+			sourceAppVersion: provenance.sourceAppVersion,
+			sourceIconURL: nil
+		)
+		return preset(for: target)
+	}
+
 	func preset(for app: AppInfoPresentable) -> SourceCustomizationPreset? {
 		guard
 			let uuid = app.uuid,
@@ -144,6 +157,25 @@ final class CustomizationPresetManager: ObservableObject {
 		if let customVersion = preset.customVersion {
 			options.appVersion = customVersion
 		}
+	}
+
+	func apply(to options: inout Options, for provenance: SourceAppProvenance) {
+		guard let preset = preset(for: provenance) else { return }
+
+		if let customName = preset.customName {
+			options.appName = customName
+		}
+		if let customBundleIdentifier = preset.customBundleIdentifier {
+			options.appIdentifier = customBundleIdentifier
+		}
+		if let customVersion = preset.customVersion {
+			options.appVersion = customVersion
+		}
+	}
+
+	func customIcon(for provenance: SourceAppProvenance) -> UIImage? {
+		guard let preset = preset(for: provenance) else { return nil }
+		return customIcon(for: preset)
 	}
 
 	func customIcon(for app: AppInfoPresentable) -> UIImage? {

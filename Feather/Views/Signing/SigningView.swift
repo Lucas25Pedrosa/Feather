@@ -21,6 +21,7 @@ struct SigningView: View {
 	@State private var _isImagePickerPresenting = false
 	@State private var _isSigning = false
 	@State private var _selectedPhoto: PhotosPickerItem? = nil
+	@State private var _didApplyPreset = false
 	@State var appIcon: UIImage?
 	
 	// MARK: Fetch
@@ -142,6 +143,15 @@ struct SigningView: View {
 				let newName = _temporaryOptions.displayNames[currentName]
 			{
 				_temporaryOptions.appName = newName
+			}
+
+			if !_didApplyPreset {
+				let customizations = CustomizationPresetManager.shared
+				customizations.apply(to: &_temporaryOptions, for: app)
+				if appIcon == nil {
+					appIcon = customizations.customIcon(for: app)
+				}
+				_didApplyPreset = true
 			}
 		}
 	}

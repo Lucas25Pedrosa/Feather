@@ -11,10 +11,6 @@ permissions:
   contents: write
   actions: read
 
-concurrency:
-  group: Feather-3.4.0-Stable
-  cancel-in-progress: true
-
 jobs:
   publish:
     runs-on: macos-latest
@@ -92,14 +88,12 @@ jobs:
           flag = "-disableAutomaticPackageResolution"
 
           if flag not in text:
-              needle = "		-skipPackagePluginValidation \\
-"
+              needle = "\t\t-skipPackagePluginValidation \\\n"
               if needle not in text:
                   raise SystemExit("ERRO: ponto de inserção do bloqueio de pacotes não encontrado.")
               text = text.replace(
                   needle,
-                  needle + "		-disableAutomaticPackageResolution \\
-",
+                  needle + "\t\t-disableAutomaticPackageResolution \\\n",
                   1,
               )
               path.write_text(text, encoding="utf-8")
@@ -239,21 +233,21 @@ jobs:
 
           Destaques:
           - nova opção Instalação rápida em Ajustes > Instalação;
-          - com um único certificado importado, o Feather usa esse certificado automaticamente;
-          - com dois ou mais certificados, o usuário escolhe o Certificado padrão da Instalação rápida;
-          - com Instalação rápida desativada, o fluxo manual de assinatura permanece disponível;
+          - um único certificado importado é usado automaticamente pela Instalação rápida;
+          - com dois ou mais certificados, aparece a seleção de Certificado padrão;
+          - com Instalação rápida desativada, o fluxo manual permanece disponível;
           - nova área Personalizações em Ajustes;
           - personalizações predefinidas vinculadas aos aplicativos da Source;
-          - suporte a personalização independente de ícone, nome, identificador e versão;
+          - suporte independente a ícone, nome, identificador e versão;
           - somente os campos configurados são alterados; os demais permanecem originais;
-          - ícones personalizados são armazenados localmente em área persistente do Feather;
-          - opção para remover o ícone personalizado de apenas um aplicativo;
-          - opções em Ajustes > Redefinir para apagar todos os ícones personalizados ou todas as personalizações;
+          - ícones personalizados ficam armazenados localmente em área persistente;
+          - remoção individual de ícone personalizado por aplicativo;
+          - novas opções em Ajustes > Redefinir para limpar ícones ou todas as personalizações;
           - limpeza automática pós-instalação preserva personalizações e ícones;
-          - presets são aplicados à Instalação rápida, Atualizações e ao fluxo manual de assinatura;
+          - presets aplicados à Instalação rápida, Atualizações e ao fluxo manual;
           - correção para aplicar Bundle ID e demais presets já na primeira tentativa;
           - título da área reduzido para Personalizações;
-          - progresso de download agora usa o tamanho informado pela Source como fallback quando o servidor não fornece Content-Length, melhorando downloads via Google Drive.
+          - progresso de download usa o tamanho informado pela Source como fallback quando o servidor não fornece Content-Length.
 
           Versão: 3.4.0
           Build: 30403
@@ -261,18 +255,6 @@ jobs:
           Build interna: NIGHTLY
           SHA-256: $SHA
           EOF
-
-      - name: Publicar artefato estável
-        uses: actions/upload-artifact@v4
-        with:
-          name: Feather-3.4.0-Stable
-          path: |
-            Feather.ipa
-            Feather-3.4.0-Stable.ipa
-            Feather-3.4.0-Stable.sha256
-          if-no-files-found: error
-          compression-level: 0
-          retention-days: 30
 
       - name: Publicar release v3.4.0
         env:

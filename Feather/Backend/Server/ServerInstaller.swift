@@ -21,6 +21,7 @@ class ServerInstaller: Identifiable, ObservableObject {
 	private var _needsShutdown = false
 	
 	var packageUrl: URL?
+	private(set) var startupError: Error?
 	var app: AppInfoPresentable
 	@ObservedObject var viewModel: InstallerStatusViewModel
 	private var _server: Application?
@@ -28,20 +29,22 @@ class ServerInstaller: Identifiable, ObservableObject {
 	init(app: AppInfoPresentable, viewModel: InstallerStatusViewModel) throws {
 		self.app = app
 		self.viewModel = viewModel
-		try _setup()
-		try _configureRoutes()
-		try _server?.server.start()
-		_needsShutdown = true
+		
+		do {
+			let server = try setupApp(port: port)
+			_server = server
+			try _configureRoutes()
+			try server.server.start()
+			_needsShutdown = true
+		} catch {
+			startupError = error
+		}
 	}
 	
 	deinit {
 		_shutdownServer()
 	}
 	
-	private func _setup() throws {
-		self._server = try? setupApp(port: port)
-	}
-		
 	private func _configureRoutes() throws {
 		_server?.get("*") { [weak self] req in
 			guard let self else { return Response(status: .badGateway) }
@@ -77,6 +80,8 @@ class ServerInstaller: Identifiable, ObservableObject {
 					}
 
 				}
+			case "/healthz":
+				return Response(status: .ok)
 			case "/install":
 				var headers = HTTPHeaders()
 				headers.add(name: .contentType, value: "text/html")
@@ -84,6 +89,62 @@ class ServerInstaller: Identifiable, ObservableObject {
 			default:
 				return Response(status: .notFound)
 			}
+		}
+	}
+	
+	// iOS installd can fail silently when the local HTTPS endpoint is unreachable.
+	// Verify the Fully Local endpoint before opening the itms-services URL.
+	func selfCheck() async -> Error? {
+		guard getServerMethod() != 1 else {
+			return nil
+		}
+		
+		let host = sni()
+		
+		guard !Self.resolve(host).isEmpty else {
+			return NSError(
+				domain: "ServerInstaller",
+				code: -1,
+				userInfo: [
+					NSLocalizedDescriptionKey: "Could not resolve (host)."
+				]
+			)
+		}
+		
+		var components = URLComponents()
+		components.scheme = "https"
+		components.host = host
+		components.port = port
+		components.path = "/healthz"
+		
+		guard let url = components.url else {
+			return NSError(
+				domain: "ServerInstaller",
+				code: -2,
+				userInfo: [
+					NSLocalizedDescriptionKey: "Could not build the local HTTPS health-check URL."
+				]
+			)
+		}
+		
+		do {
+			let request = URLRequest(url: url, timeoutInterval: 10)
+			let (_, response) = try await URLSession.shared.data(for: request)
+			
+			if let response = response as? HTTPURLResponse,
+			   !(200...299).contains(response.statusCode) {
+				return NSError(
+					domain: "ServerInstaller",
+					code: response.statusCode,
+					userInfo: [
+						NSLocalizedDescriptionKey: "Local HTTPS health check returned HTTP (response.statusCode)."
+					]
+				)
+			}
+			
+			return nil
+		} catch {
+			return error
 		}
 	}
 	

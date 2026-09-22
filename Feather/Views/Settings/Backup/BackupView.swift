@@ -44,14 +44,21 @@ struct BackupView: View {
 						_connectionStatus
 					}
 					
-					Button(.localized("Connect"), systemImage: "network") {
-						_doConnect()
+					if backupManager.isConnected {
+						Button(.localized("Disconnect")) {
+							backupManager.disconnectFromServer()
+						}
+						.disabled(backupManager.isBusy)
+					} else {
+						Button(.localized("Connect")) {
+							_doConnect()
+						}
+						.disabled(
+							backupManager.recoveryKey == nil
+								|| _serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+								|| backupManager.connectionState == .checking
+						)
 					}
-					.disabled(
-						backupManager.recoveryKey == nil
-							|| _serverURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-							|| backupManager.connectionState == .checking
-					)
 				} header: {
 					Text(.localized("Backup Server"))
 				} footer: {

@@ -1,0 +1,52 @@
+name: Build Feather 3.3.0 Test
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-feather-3.3.0-test.yml"
+
+jobs:
+  build:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: 'true'
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s /Applications/Xcode_26.3.0.app
+
+      - name: Build iOS IPA
+        run: |
+          make iphoneos
+
+      - name: Verify app identity and TLS
+        run: |
+          APP="_build/Payload/Feather.app"
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" "$APP/Info.plist")
+          BUNDLE=$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP/Info.plist")
+
+          echo "VERSION=$VERSION"
+          echo "BUNDLE=$BUNDLE"
+
+          test "$VERSION" = "3.3.0"
+          test "$BUNDLE" = "com.feather.lucas"
+
+          test -f "$APP/server.crt"
+          test -f "$APP/server.pem"
+          test -f "$APP/commonName.txt"
+          test "$(grep -c -- '-----BEGIN CERTIFICATE-----' "$APP/server.crt")" -eq 2
+          test "$(cat "$APP/commonName.txt")" = "local-feather.lucaspedrosa.shop"
+
+      - name: Upload Feather IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Feather-3.3.0-Fully-Local
+          path: packages/Feather.ipa
+          if-no-files-found: error
+          retention-days: 7

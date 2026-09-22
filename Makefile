@@ -50,6 +50,7 @@ $(PLATFORMS): deps
 	chmod -R 0755 _build/Payload/Feather.app
 	codesign --force --sign - --timestamp=none _build/Payload/Feather.app
 	cp deps/* _build/Payload/Feather.app/ || true
+	rm -rf _build/Payload/Feather.app/_CodeSignature
 
 	mkdir -p packages
 

@@ -32,7 +32,8 @@ struct DownloadButtonView: View {
 	}
 
 	private var _usesQuickInstall: Bool {
-		updatePreferences.usableCertificate() != nil || _quickState.phase != .idle
+		(updatePreferences.quickInstallEnabled && updatePreferences.usableCertificate() != nil)
+			|| _quickState.phase != .idle
 	}
 
 	private var _quickProgress: Double {

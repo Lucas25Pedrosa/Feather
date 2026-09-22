@@ -116,7 +116,7 @@ jobs:
 
           for config_id, config_name in target_configs.items():
               pattern = re.compile(
-                  rf"({re.escape(config_id)} /\\* {config_name} \\*/ = \\{{.*?buildSettings = \\{{\\n)(.*?)(\\n\\t\\t\\t\\}};\\n\\t\\t\\tname = {config_name};)",
+                  rf"({re.escape(config_id)} /\* {config_name} \*/ = \{{.*?buildSettings = \{{\n)(.*?)(\n\t\t\t\}};\n\t\t\tname = {config_name};)",
                   re.DOTALL,
               )
               match = pattern.search(text)
@@ -126,8 +126,8 @@ jobs:
               block = match.group(2)
 
               block, build_count = re.subn(
-                  r'(^\\s*CURRENT_PROJECT_VERSION\\s*=\\s*)[^;]+;',
-                  r'\\g<1>30301;',
+                  r'(^\s*CURRENT_PROJECT_VERSION\s*=\s*)[^;]+;',
+                  r'\g<1>30301;',
                   block,
                   count=1,
                   flags=re.MULTILINE,
@@ -136,8 +136,8 @@ jobs:
                   raise SystemExit(f"ERRO: CURRENT_PROJECT_VERSION não encontrado em {config_name}.")
 
               block, name_count = re.subn(
-                  r'(^\\s*INFOPLIST_KEY_CFBundleDisplayName\\s*=\\s*)[^;]+;',
-                  r'\\g<1>"Feather Beta";',
+                  r'(^\s*INFOPLIST_KEY_CFBundleDisplayName\s*=\s*)[^;]+;',
+                  r'\g<1>"Feather Beta";',
                   block,
                   count=1,
                   flags=re.MULTILINE,
@@ -146,7 +146,7 @@ jobs:
                   raise SystemExit(f"ERRO: CFBundleDisplayName não encontrado em {config_name}.")
 
               condition_pattern = re.compile(
-                  r'(^\\s*SWIFT_ACTIVE_COMPILATION_CONDITIONS\\s*=\\s*)(".*?"|[^;]*)(;)',
+                  r'(^\s*SWIFT_ACTIVE_COMPILATION_CONDITIONS\s*=\s*)(".*?"|[^;]*)(;)',
                   re.MULTILINE,
               )
               condition_match = condition_pattern.search(block)

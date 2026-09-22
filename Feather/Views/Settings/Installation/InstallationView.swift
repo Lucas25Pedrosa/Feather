@@ -26,7 +26,7 @@ struct InstallationView: View {
 		.localized("Server"),
 		.localized("idevice")
 	]
-	
+
 	// MARK: Body
 	var body: some View {
 		NBList(.localized("Installation")) {
@@ -47,58 +47,43 @@ struct InstallationView: View {
 			}
 
 			Section {
-				Button {
-					_preferences.selectCertificate(nil)
-				} label: {
-					HStack {
-						Label("Assinatura manual", systemImage: "hand.tap")
-						Spacer()
-						if _preferences.defaultCertificateUUID == nil {
-							Image(systemName: "checkmark")
-								.foregroundStyle(Color.accentColor)
+				Toggle(isOn: $_preferences.quickInstallEnabled) {
+					Label("Instalação rápida", systemImage: "bolt.fill")
+				}
+
+				if _preferences.quickInstallEnabled && _certificates.count >= 2 {
+					NavigationLink {
+						QuickInstallCertificatePickerView()
+					} label: {
+						HStack {
+							Label("Certificado padrão", systemImage: "checkmark.seal")
+							Spacer()
+							Text(_selectedCertificateName)
+								.foregroundStyle(.secondary)
+								.lineLimit(1)
 						}
 					}
 				}
-				.buttonStyle(.plain)
-			} header: {
-				Text("Comportamento")
 			} footer: {
-				Text("Sem um certificado padrão, Atualizar mantém o fluxo manual e abre a tela de assinatura depois do download.")
-			}
-
-			Section {
-				if _certificates.isEmpty {
-					Text("Nenhum certificado importado.")
-						.foregroundStyle(.secondary)
+				if !_preferences.quickInstallEnabled {
+					Text("Desativada: o Feather mantém o fluxo manual de assinatura.")
+				} else if _certificates.isEmpty {
+					Text("Importe um certificado para usar a Instalação rápida. Sem certificado, o fluxo continua manual.")
+				} else if _certificates.count == 1 {
+					Text("O único certificado importado será usado automaticamente para baixar, assinar e instalar.")
+				} else if _preferences.usableCertificate() == nil {
+					Text("Selecione o certificado padrão que será usado pela Instalação rápida.")
 				} else {
-					ForEach(_certificates, id: \.objectID) { certificate in
-						Button {
-							_preferences.selectCertificate(certificate)
-						} label: {
-							HStack(spacing: 12) {
-								CertificatesCellView(cert: certificate)
-								Spacer(minLength: 8)
-								if _preferences.defaultCertificateUUID == certificate.uuid {
-									Image(systemName: "checkmark.circle.fill")
-										.foregroundStyle(Color.accentColor)
-								}
-							}
-							.contentShape(Rectangle())
-						}
-						.buttonStyle(.plain)
-						.disabled(certificate.revoked == true || _isExpired(certificate))
-					}
+					Text("O Feather baixa, aplica personalizações predefinidas quando existirem, assina e instala automaticamente.")
 				}
-			} header: {
-				Text("Certificado padrão")
-			} footer: {
-				Text("Quando um certificado válido é escolhido, Atualizar executa baixar → assinar → instalar. A preferência é vinculada ao UUID do certificado e não muda se a lista for reordenada.")
 			}
 
-			if let selected = _preferences.selectedCertificate(),
+			if _preferences.quickInstallEnabled,
+			   _certificates.count >= 2,
+			   let selected = _preferences.selectedCertificate(),
 			   selected.revoked == true || _isExpired(selected) {
 				Section {
-					Label("O certificado selecionado não está mais válido. As atualizações voltarão ao modo manual até você escolher outro.", systemImage: "exclamationmark.triangle.fill")
+					Label("O certificado selecionado não está mais válido. Escolha outro certificado para usar a Instalação rápida.", systemImage: "exclamationmark.triangle.fill")
 						.foregroundStyle(.orange)
 				}
 			}
@@ -116,9 +101,9 @@ struct InstallationView: View {
 				Text("Limpeza automática")
 			} footer: {
 				if _automaticPurgeApps && _automaticCleanup {
-					Text("Após uma instalação concluída, o Feather também remove da própria biblioteca todas as cópias em Importados e Assinados. O aplicativo já instalado no iOS não é apagado. Certificados, sources, registro de tweaks, histórico de atualizações e backups são preservados.")
+					Text("Após uma instalação concluída, o Feather também remove da própria biblioteca todas as cópias em Importados e Assinados. O aplicativo já instalado no iOS não é apagado. Certificados, sources, personalizações predefinidas, ícones personalizados, registro de tweaks, histórico de atualizações e backups são preservados.")
 				} else {
-					Text("A segunda opção é destrutiva e fica desativada por padrão. Ela só atua na limpeza automática após uma instalação concluída.")
+					Text("A segunda opção é destrutiva e fica desativada por padrão. Ela só atua na limpeza automática após uma instalação concluída. Personalizações predefinidas e seus ícones são preservados.")
 				}
 			}
 		}
@@ -135,6 +120,57 @@ struct InstallationView: View {
 			Text(.localized("idevice warning"))
 		}
 		.animation(.default, value: _installationMethod)
+	}
+
+	private var _selectedCertificateName: String {
+		guard let certificate = _preferences.selectedCertificate() else {
+			return "Selecionar"
+		}
+		return certificate.nickname
+			?? Storage.shared.getProvisionFileDecoded(for: certificate)?.Name
+			?? "Certificado"
+	}
+
+	private func _isExpired(_ certificate: CertificatePair) -> Bool {
+		guard let expiration = certificate.expiration else { return true }
+		return expiration <= Date()
+	}
+}
+
+// MARK: - Quick install certificate picker
+private struct QuickInstallCertificatePickerView: View {
+	@StateObject private var _preferences = UpdateEnginePreferences.shared
+
+	@FetchRequest(
+		entity: CertificatePair.entity(),
+		sortDescriptors: [NSSortDescriptor(keyPath: \CertificatePair.date, ascending: false)],
+		animation: .snappy
+	) private var _certificates: FetchedResults<CertificatePair>
+
+	var body: some View {
+		NBList("Certificado padrão") {
+			Section {
+				ForEach(_certificates, id: \.objectID) { certificate in
+					Button {
+						_preferences.selectCertificate(certificate)
+					} label: {
+						HStack(spacing: 12) {
+							CertificatesCellView(cert: certificate)
+							Spacer(minLength: 8)
+							if _preferences.defaultCertificateUUID == certificate.uuid {
+								Image(systemName: "checkmark.circle.fill")
+									.foregroundStyle(Color.accentColor)
+							}
+						}
+						.contentShape(Rectangle())
+					}
+					.buttonStyle(.plain)
+					.disabled(certificate.revoked == true || _isExpired(certificate))
+				}
+			} footer: {
+				Text("Este certificado será usado somente quando houver mais de um certificado importado e a Instalação rápida estiver ativada.")
+			}
+		}
 	}
 
 	private func _isExpired(_ certificate: CertificatePair) -> Bool {

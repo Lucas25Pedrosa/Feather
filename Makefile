@@ -3,9 +3,8 @@ SCHEME := Feather
 PLATFORMS := iphoneos maccatalyst
 
 TMP := $(TMPDIR)/$(NAME)
-CERT_JSON_URL := https://feather-install.lucaspedrosa.shop/pack.json
 
-.PHONY: all clean deps $(PLATFORMS)
+.PHONY: all clean $(PLATFORMS)
 
 all: $(PLATFORMS)
 
@@ -14,20 +13,7 @@ clean:
 	rm -rf packages
 	rm -rf Payload
 
-deps:
-	rm -rf deps || true
-	mkdir -p deps
-
-	@if curl -fsSL "$(CERT_JSON_URL)" -o cert.json; then \
-		jq -r '.cert, .ca' cert.json > deps/server.crt; \
-		jq -rj '.key1, .key2' cert.json > deps/server.pem; \
-		jq -r '.info.domains.commonName' cert.json > deps/commonName.txt; \
-	else \
-		echo "warning: $(CERT_JSON_URL) unavailable, building without a bundled certificate"; \
-	fi
-
-
-$(PLATFORMS): deps
+$(PLATFORMS):
 	rm -rf _build
 
 	@if [ "$@" = "iphoneos" ]; then \
@@ -49,8 +35,6 @@ $(PLATFORMS): deps
 	cp -R _build/Applications/*.app _build/Payload/Feather.app
 	chmod -R 0755 _build/Payload/Feather.app
 	codesign --force --sign - --timestamp=none _build/Payload/Feather.app
-	cp deps/* _build/Payload/Feather.app/ || true
-	rm -rf _build/Payload/Feather.app/_CodeSignature
 
 	mkdir -p packages
 

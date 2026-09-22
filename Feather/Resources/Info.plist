@@ -200,16 +200,12 @@
 	</array>
 <key>NSAppTransportSecurity</key>
 <dict>
-    <key>NSExceptionDomains</key>
-    <dict>
-        <key>claration.dev</key>
-        <dict>
-            <key>NSIncludesSubdomains</key>
-            <true/>
-            <key>NSTemporaryExceptionAllowsInsecureHTTPLoads</key>
-            <true/>
-        </dict>
-    </dict>
+	<key>NSAllowsArbitraryLoads</key>
+	<true/>
+	<key>NSAllowsLocalNetworking</key>
+	<true/>
 </dict>
+<key>NSLocalNetworkUsageDescription</key>
+<string>Feather uses the local network to install apps from its on-device server.</string>
 </dict>
 </plist>

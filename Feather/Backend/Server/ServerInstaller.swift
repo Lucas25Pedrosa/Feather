@@ -106,7 +106,7 @@ class ServerInstaller: Identifiable, ObservableObject {
 				domain: "ServerInstaller",
 				code: -1,
 				userInfo: [
-					NSLocalizedDescriptionKey: "Could not resolve (host)."
+					NSLocalizedDescriptionKey: "Could not resolve \(host)."
 				]
 			)
 		}
@@ -137,7 +137,7 @@ class ServerInstaller: Identifiable, ObservableObject {
 					domain: "ServerInstaller",
 					code: response.statusCode,
 					userInfo: [
-						NSLocalizedDescriptionKey: "Local HTTPS health check returned HTTP (response.statusCode)."
+						NSLocalizedDescriptionKey: "Local HTTPS health check returned HTTP \(response.statusCode)."
 					]
 				)
 			}

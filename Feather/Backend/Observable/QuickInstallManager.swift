@@ -56,15 +56,18 @@ final class QuickInstallManager: ObservableObject {
 	private final class JobContext {
 		let expectedBundleIdentifier: String?
 		let shouldDeleteImported: Bool
+		let sourceProvenance: SourceAppProvenance?
 		var observer: AnyCancellable?
 		var installer: FeatherAppInstaller?
 
 		init(
 			expectedBundleIdentifier: String?,
-			shouldDeleteImported: Bool
+			shouldDeleteImported: Bool,
+			sourceProvenance: SourceAppProvenance? = nil
 		) {
 			self.expectedBundleIdentifier = expectedBundleIdentifier
 			self.shouldDeleteImported = shouldDeleteImported
+			self.sourceProvenance = sourceProvenance
 		}
 	}
 
@@ -96,7 +99,8 @@ final class QuickInstallManager: ObservableObject {
 
 		let context = JobContext(
 			expectedBundleIdentifier: expectedBundleIdentifier,
-			shouldDeleteImported: true
+			shouldDeleteImported: true,
+			sourceProvenance: sourceProvenance
 		)
 		_jobs[jobID] = context
 		_setState(jobID, phase: .downloading, progress: 0, detail: "Baixando")
@@ -197,8 +201,14 @@ final class QuickInstallManager: ObservableObject {
 		options.post_deleteAppAfterSigned = false
 
 		let customizations = CustomizationPresetManager.shared
-		customizations.apply(to: &options, for: app)
-		let customIcon = customizations.customIcon(for: app)
+		let customIcon: UIImage?
+		if let sourceProvenance = context.sourceProvenance {
+			customizations.apply(to: &options, for: sourceProvenance)
+			customIcon = customizations.customIcon(for: sourceProvenance)
+		} else {
+			customizations.apply(to: &options, for: app)
+			customIcon = customizations.customIcon(for: app)
+		}
 		let expectedSignedIdentifier = options.appIdentifier ?? context.expectedBundleIdentifier
 
 		FR.signPackageFile(

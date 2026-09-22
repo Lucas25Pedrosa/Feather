@@ -89,7 +89,8 @@ final class UpdateEngineManager: ObservableObject {
 
 	func canAutomaticallyUpdate(_ update: AppUpdate) -> Bool {
 		_ = update
-		return UpdateEnginePreferences.shared.usableCertificate() != nil
+		let preferences = UpdateEnginePreferences.shared
+		return preferences.quickInstallEnabled && preferences.usableCertificate() != nil
 	}
 
 	@discardableResult
@@ -102,8 +103,10 @@ final class UpdateEngineManager: ObservableObject {
 
 	@discardableResult
 	func startAll(_ updates: [AppUpdate]) -> Bool {
+		let preferences = UpdateEnginePreferences.shared
 		guard
-			UpdateEnginePreferences.shared.usableCertificate() != nil,
+			preferences.quickInstallEnabled,
+			preferences.usableCertificate() != nil,
 			!isBatchRunning
 		else {
 			return false
@@ -125,7 +128,8 @@ final class UpdateEngineManager: ObservableObject {
 
 	@discardableResult
 	private func _start(_ update: AppUpdate) -> Bool {
-		guard UpdateEnginePreferences.shared.usableCertificate() != nil else {
+		let preferences = UpdateEnginePreferences.shared
+		guard preferences.quickInstallEnabled, preferences.usableCertificate() != nil else {
 			return false
 		}
 
@@ -181,10 +185,15 @@ final class UpdateEngineManager: ObservableObject {
 		options.post_installAppAfterSigned = false
 		options.post_deleteAppAfterSigned = false
 
+		let customizations = CustomizationPresetManager.shared
+		customizations.apply(to: &options, for: imported)
+		let customIcon = customizations.customIcon(for: imported)
+		let expectedSignedIdentifier = options.appIdentifier ?? context.update.localBundleIdentifier
+
 		FR.signPackageFile(
 			imported,
 			using: options,
-			icon: nil,
+			icon: customIcon,
 			certificate: certificate
 		) { [weak self] error in
 			Task { @MainActor in
@@ -196,7 +205,7 @@ final class UpdateEngineManager: ObservableObject {
 
 				guard let signed = self._newSignedApp(
 					excluding: signedBefore,
-					bundleIdentifier: context.update.localBundleIdentifier
+					bundleIdentifier: expectedSignedIdentifier
 				) else {
 					self.fail(jobID: jobID, message: "A assinatura terminou, mas o app assinado não foi localizado.")
 					return
@@ -285,7 +294,7 @@ final class UpdateEngineManager: ObservableObject {
 				next.localUUID,
 				phase: .failed,
 				progress: 0,
-				detail: "O certificado padrão não está disponível para esta atualização."
+				detail: "A Instalação rápida não possui um certificado disponível para esta atualização."
 			)
 			_batchItemFinished(jobID: next.localUUID, success: false)
 			return

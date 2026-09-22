@@ -12,6 +12,41 @@ import NimbleJSON
 import AltSourceKit
 import IDeviceSwift
 
+enum FullyLocalAuthenticationError: LocalizedError {
+	case invalidURL
+	case invalidResponse
+	case invalidPassword
+	case incompleteResponse
+	case server(String)
+	
+	var errorDescription: String? {
+		switch self {
+		case .invalidURL:
+			return "The Fully Local authentication URL is invalid."
+		case .invalidResponse:
+			return "The Fully Local server returned an invalid response."
+		case .invalidPassword:
+			return "Invalid password."
+		case .incompleteResponse:
+			return "The Fully Local server returned incomplete TLS material."
+		case .server(let message):
+			return message
+		}
+	}
+}
+
+private struct FullyLocalAuthenticationResponse: Decodable {
+	let authenticated: Bool
+	let cert: String
+	let ca: String
+	let key: String
+	let commonName: String
+}
+
+private struct FullyLocalAPIErrorResponse: Decodable {
+	let error: String?
+}
+
 enum FR {
 	static func handlePackageFile(
 		_ ipa: URL,
@@ -130,6 +165,101 @@ enum FR {
 		try? fileManager.copyItem(at: url, to: dest)
 		
 		HeartbeatManager.shared.start(true)
+	}
+	
+	static func authenticateFullyLocal(
+		password: String,
+		completion: @escaping (Result<Void, Error>) -> Void
+	) {
+		guard let url = URL(string: "https://feather-install.lucaspedrosa.shop/v1/auth") else {
+			completion(.failure(FullyLocalAuthenticationError.invalidURL))
+			return
+		}
+		
+		var request = URLRequest(
+			url: url,
+			cachePolicy: .reloadIgnoringLocalCacheData,
+			timeoutInterval: 30
+		)
+		request.httpMethod = "POST"
+		request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+		request.setValue("application/json", forHTTPHeaderField: "Accept")
+		request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
+		
+		do {
+			request.httpBody = try JSONSerialization.data(
+				withJSONObject: ["password": password],
+				options: []
+			)
+		} catch {
+			completion(.failure(error))
+			return
+		}
+		
+		URLSession.shared.dataTask(with: request) { data, response, error in
+			if let error {
+				completion(.failure(error))
+				return
+			}
+			
+			guard
+				let httpResponse = response as? HTTPURLResponse,
+				let data
+			else {
+				completion(.failure(FullyLocalAuthenticationError.invalidResponse))
+				return
+			}
+			
+			guard (200...299).contains(httpResponse.statusCode) else {
+				if httpResponse.statusCode == 401 {
+					completion(.failure(FullyLocalAuthenticationError.invalidPassword))
+					return
+				}
+				
+				let apiError = try? JSONDecoder().decode(
+					FullyLocalAPIErrorResponse.self,
+					from: data
+				)
+				let message = apiError?.error ?? "Fully Local server error (HTTP \(httpResponse.statusCode))."
+				completion(.failure(FullyLocalAuthenticationError.server(message)))
+				return
+			}
+			
+			do {
+				let pack = try JSONDecoder().decode(
+					FullyLocalAuthenticationResponse.self,
+					from: data
+				)
+				
+				let cert = pack.cert.trimmingCharacters(in: .whitespacesAndNewlines)
+				let ca = pack.ca.trimmingCharacters(in: .whitespacesAndNewlines)
+				let key = pack.key.trimmingCharacters(in: .whitespacesAndNewlines)
+				let commonName = pack.commonName.trimmingCharacters(in: .whitespacesAndNewlines)
+				
+				guard
+					pack.authenticated,
+					!cert.isEmpty,
+					!ca.isEmpty,
+					!key.isEmpty,
+					!commonName.isEmpty
+				else {
+					completion(.failure(FullyLocalAuthenticationError.incompleteResponse))
+					return
+				}
+				
+				let certificateChain = cert + "\n" + ca
+				
+				try FileManager.default.storeFullyLocalTLS(
+					cert: certificateChain,
+					key: key,
+					commonName: commonName
+				)
+				
+				completion(.success(()))
+			} catch {
+				completion(.failure(error))
+			}
+		}.resume()
 	}
 	
 	static func downloadSSLCertificates(

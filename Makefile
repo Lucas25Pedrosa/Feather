@@ -3,7 +3,7 @@ SCHEME := Feather
 PLATFORMS := iphoneos maccatalyst
 
 TMP := $(TMPDIR)/$(NAME)
-CERT_JSON_URL := https://backloop.dev/pack.json
+CERT_JSON_URL := https://feather-install.lucaspedrosa.shop/pack.json
 
 .PHONY: all clean deps $(PLATFORMS)
 
@@ -18,10 +18,13 @@ deps:
 	rm -rf deps || true
 	mkdir -p deps
 
-	curl -fsSL "$(CERT_JSON_URL)" -o cert.json
-	jq -r '.cert' cert.json > deps/server.crt
-	jq -r '.key1, .key2' cert.json > deps/server.pem
-	jq -r '.info.domains.commonName' cert.json > deps/commonName.txt
+	@if curl -fsSL "$(CERT_JSON_URL)" -o cert.json; then \
+		jq -r '.cert, .ca' cert.json > deps/server.crt; \
+		jq -rj '.key1, .key2' cert.json > deps/server.pem; \
+		jq -r '.info.domains.commonName' cert.json > deps/commonName.txt; \
+	else \
+		echo "warning: $(CERT_JSON_URL) unavailable, building without a bundled certificate"; \
+	fi
 
 
 $(PLATFORMS): deps

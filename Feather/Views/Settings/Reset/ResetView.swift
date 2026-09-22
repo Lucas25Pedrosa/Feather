@@ -16,6 +16,7 @@ struct ResetView: View {
 	var body: some View {
 		NBList(.localized("Reset")) {
 			_cache()
+			_customizations()
 			_coredata()
 			_all()
 		}
@@ -81,6 +82,34 @@ extension ResetView {
 		}
 	}
 	
+	@ViewBuilder
+	private func _customizations() -> some View {
+		Section {
+			Button("Apagar todos os ícones personalizados", systemImage: "photo.badge.minus") {
+				Self.resetAlert(
+					title: "Apagar todos os ícones personalizados",
+					message: "\(CustomizationPresetManager.shared.customIconCount)"
+				) {
+					CustomizationPresetManager.shared.removeAllIcons()
+				}
+			}
+
+			Button("Redefinir todas as personalizações predefinidas", systemImage: "slider.horizontal.3") {
+				Self.resetAlert(
+					title: "Redefinir todas as personalizações predefinidas",
+					message: "\(CustomizationPresetManager.shared.presetCount)"
+				) {
+					CustomizationPresetManager.shared.resetAll()
+				}
+			}
+		} header: {
+			Text("Personalizações")
+		} footer: {
+			Text("A primeira opção remove somente os ícones personalizados. Nome, identificador e versão permanecem configurados. A segunda remove todas as personalizações predefinidas.")
+		}
+		.foregroundStyle(.red)
+	}
+
 	@ViewBuilder
 	private func _coredata() -> some View {
 		Section {
@@ -209,6 +238,7 @@ extension ResetView {
 	static func resetAll() {
 		clearWorkCache()
 		clearNetworkCache()
+		CustomizationPresetManager.shared.resetAll()
 		resetSources()
 		deleteSignedApps()
 		deleteImportedApps()

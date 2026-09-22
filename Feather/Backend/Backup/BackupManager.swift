@@ -288,6 +288,13 @@ final class BackupManager: ObservableObject {
 		try _storeRecoveryKey(normalized)
 	}
 	
+	func disconnectFromServer() {
+		_automaticBackupTask?.cancel()
+		connectionState = .idle
+		isEnabled = false
+		UserDefaults.standard.set(false, forKey: Self._enabledKey)
+	}
+	
 	func disconnect() {
 		_automaticBackupTask?.cancel()
 		Self._deleteRecoveryKey()

@@ -47,7 +47,7 @@ struct SettingsView: View {
 
 				_feedback()
 
-				Section {
+				NBSection("Personalização") {
 					NavigationLink(destination: AppearanceView()) {
 						Label(.localized("Appearance"), systemImage: "paintbrush")
 					}
@@ -57,6 +57,11 @@ struct SettingsView: View {
 					NavigationLink(destination: TabCustomizationView()) {
 						Label(.localized("Tabs"), systemImage: "rectangle.3.group")
 					}
+					NavigationLink(destination: PredefinedCustomizationsView()) {
+						Label("Personalizações predefinidas", systemImage: "slider.horizontal.3")
+					}
+				} footer: {
+					Text("Aparência do Feather e personalizações automáticas aplicadas aos aplicativos da Source.")
 				}
 
 				NBSection(.localized("Certificates")) {

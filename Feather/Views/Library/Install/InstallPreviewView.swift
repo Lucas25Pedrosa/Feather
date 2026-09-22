@@ -155,7 +155,22 @@ struct InstallPreviewView: View {
 					if await _installationMethod == 0 {
 						await MainActor.run {
 							installer.packageUrl = packageUrl
-							viewModel.status = .ready
+						}
+						
+						var failure = await MainActor.run {
+							installer.startupError
+						}
+						
+						if failure == nil {
+							failure = await installer.selfCheck()
+						}
+						
+						await MainActor.run {
+							if let failure {
+								viewModel.status = .broken(failure)
+							} else {
+								viewModel.status = .ready
+							}
 						}
 						
 						if case .installing = await viewModel.status {

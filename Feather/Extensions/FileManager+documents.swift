@@ -31,7 +31,13 @@ extension FileManager {
 		commonName: String
 	) throws {
 		let directory = fullyLocalTLS
-		try createDirectoryIfNeeded(at: directory)
+		if !fileExists(atPath: directory.path) {
+			try createDirectory(
+				at: directory,
+				withIntermediateDirectories: true,
+				attributes: nil
+			)
+		}
 
 		let files: [(URL, String)] = [
 			(fullyLocalTLS("server.crt"), cert),
@@ -50,7 +56,10 @@ extension FileManager {
 
 	/// Removes all locally stored Fully Local TLS material.
 	func removeFullyLocalTLS() throws {
-		try removeFileIfNeeded(at: fullyLocalTLS)
+		let directory = fullyLocalTLS
+		if fileExists(atPath: directory.path) {
+			try removeItem(at: directory)
+		}
 	}
 	/// Gives apps Signed directory
 	var archives: URL {

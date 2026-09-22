@@ -43,18 +43,12 @@ struct ServerView: View {
 			
 			if _serverMethod == 0 {
 				Section {
-					HStack {
-						Text(.localized("Authentication Status"))
-						
-						Spacer()
-						
-						Text(
-							_isAuthenticated
-								? .localized("Authenticated")
-								: .localized("Not Authenticated")
-						)
-						.foregroundColor(_isAuthenticated ? .green : .red)
-					}
+					Text(
+						_isAuthenticated
+							? .localized("Authenticated")
+							: .localized("Not Authenticated")
+					)
+					.foregroundColor(_isAuthenticated ? .green : .red)
 					
 					if !_isAuthenticated {
 						SecureField(
@@ -63,10 +57,7 @@ struct ServerView: View {
 						)
 						.textContentType(.password)
 						
-						Button(
-							.localized("Authenticate"),
-							systemImage: "lock.open"
-						) {
+						Button(.localized("Authenticate")) {
 							_authenticate()
 						}
 						.disabled(_password.isEmpty || _isAuthenticating)

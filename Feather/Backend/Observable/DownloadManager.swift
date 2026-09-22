@@ -245,11 +245,18 @@ extension DownloadManager: URLSessionDownloadDelegate {
 		guard let download = getDownloadTask(by: downloadTask) else { return }
 		
 		DispatchQueue.main.async {
-			download.progress = totalBytesExpectedToWrite > 0
-			? Double(totalBytesWritten) / Double(totalBytesExpectedToWrite)
-			: 0
+			let expectedBytes: Int64
+			if totalBytesExpectedToWrite > 0 {
+				expectedBytes = totalBytesExpectedToWrite
+			} else {
+				expectedBytes = download.sourceProvenance?.sourceAppSize ?? 0
+			}
+
+			download.progress = expectedBytes > 0
+				? min(1, Double(totalBytesWritten) / Double(expectedBytes))
+				: 0
 			download.bytesDownloaded = totalBytesWritten
-			download.totalBytes = totalBytesExpectedToWrite
+			download.totalBytes = expectedBytes
 			
 			#if !targetEnvironment(macCatalyst)
 			if #available(iOS 26.0, *) {

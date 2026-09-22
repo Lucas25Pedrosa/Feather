@@ -6,7 +6,7 @@
   "apps": [
     {
       "name": "Feather",
-      "bundleIdentifier": "thewonderofyou.Feather",
+      "bundleIdentifier": "com.feather.lucas",
       "developerName": "Samara",
       "iconURL": "https://github.com/khcrysalis/Feather/blob/v1.x/iOS/Resources/Icons/Main/Mac@3x.png?raw=true",
       "localizedDescription": "Feather is a free on-device iOS application manager/installer built with UIKit for quality.",
@@ -14,10 +14,10 @@
       "tintColor": "848ef9",
       "versions": [
         {
-          "version": "2.9.0",
-          "date": "2026-07-05T02:11:53Z",
-          "size": 12598584,
-          "downloadURL": "https://github.com/claration/Feather/releases/download/v2.9.0/Feather.ipa"
+          "version": "3.3.0",
+          "date": "2026-09-22T16:51:07Z",
+          "size": 14560215,
+          "downloadURL": "https://github.com/Lucas25Pedrosa/Feather/releases/download/v3.3.0/Feather.ipa"
         }
       ],
       "appPermissions": {},
@@ -27,10 +27,10 @@
         "https://github.com/khcrysalis/Feather/blob/v1.x/Images/Sign.png?raw=true",
         "https://github.com/khcrysalis/Feather/blob/v1.x/Images/Store.png?raw=true"
       ],
-      "version": "2.9.0",
-      "versionDate": "2026-07-05T02:11:53Z",
-      "size": 12598584,
-      "downloadURL": "https://github.com/claration/Feather/releases/download/v2.9.0/Feather.ipa"
+      "version": "3.3.0",
+      "versionDate": "2026-09-22T16:51:07Z",
+      "size": 14560215,
+      "downloadURL": "https://github.com/Lucas25Pedrosa/Feather/releases/download/v3.3.0/Feather.ipa"
     }
   ],
   "news": [

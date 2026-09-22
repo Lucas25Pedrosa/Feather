@@ -8,6 +8,7 @@
 import Combine
 import CoreData
 import Foundation
+import UIKit
 
 enum QuickInstallDownloadRoute {
 	static let prefix = "FeatherQuickInstall_"

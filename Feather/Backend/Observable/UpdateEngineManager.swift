@@ -186,8 +186,8 @@ final class UpdateEngineManager: ObservableObject {
 		options.post_deleteAppAfterSigned = false
 
 		let customizations = CustomizationPresetManager.shared
-		customizations.apply(to: &options, for: imported)
-		let customIcon = customizations.customIcon(for: imported)
+		customizations.apply(to: &options, for: context.update.sourceProvenance)
+		let customIcon = customizations.customIcon(for: context.update.sourceProvenance)
 		let expectedSignedIdentifier = options.appIdentifier ?? context.update.localBundleIdentifier
 
 		FR.signPackageFile(

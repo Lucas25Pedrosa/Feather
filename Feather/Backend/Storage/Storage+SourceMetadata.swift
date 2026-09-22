@@ -19,6 +19,7 @@ struct SourceAppProvenance: Equatable {
 	let sourceAppBuildVersion: String?
 	let sourceAppVersionDate: Date?
 	let sourceAppDownloadURL: URL?
+	let sourceAppSize: Int64?
 	
 	init(
 		sourceRepositoryURL: URL,
@@ -29,7 +30,8 @@ struct SourceAppProvenance: Equatable {
 		sourceAppVersion: String? = nil,
 		sourceAppBuildVersion: String? = nil,
 		sourceAppVersionDate: Date? = nil,
-		sourceAppDownloadURL: URL? = nil
+		sourceAppDownloadURL: URL? = nil,
+		sourceAppSize: Int64? = nil
 	) {
 		self.sourceRepositoryURL = sourceRepositoryURL
 		self.sourceRepositoryIdentifier = sourceRepositoryIdentifier
@@ -40,6 +42,7 @@ struct SourceAppProvenance: Equatable {
 		self.sourceAppBuildVersion = sourceAppBuildVersion
 		self.sourceAppVersionDate = sourceAppVersionDate
 		self.sourceAppDownloadURL = sourceAppDownloadURL
+		self.sourceAppSize = sourceAppSize
 	}
 	
 	var sourceVersionID: String {
@@ -96,6 +99,7 @@ extension SourceAppProvenance {
 		self.sourceAppBuildVersion = appBuildVersion
 		self.sourceAppVersionDate = appVersionDate
 		self.sourceAppDownloadURL = appDownloadURL
+		self.sourceAppSize = resolvedVersion?.size.flatMap { Int64(exactly: $0) } ?? app.size
 	}
 }
 

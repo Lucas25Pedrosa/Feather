@@ -180,12 +180,13 @@ final class CustomizationPresetManager: ObservableObject {
 			iconFileName = nil
 
 			if let icon,
-			   let data = icon.resizeToSquare().pngData() {
+			   let resizedIcon = icon.resizeToSquare(),
+			   let data = resizedIcon.pngData() {
 				_prepareDirectories()
 				let fileName = "icon-\(UUID().uuidString).png"
 				let destination = _iconsDirectory.appendingPathComponent(fileName)
 				do {
-					try data.write(to: destination, options: .atomic)
+					try data.write(to: destination, options: Data.WritingOptions.atomic)
 					iconFileName = fileName
 				} catch {
 					iconFileName = nil

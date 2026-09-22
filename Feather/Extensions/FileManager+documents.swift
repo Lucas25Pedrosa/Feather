@@ -54,6 +54,26 @@ extension FileManager {
 		}
 	}
 
+	/// Indicates whether all required Fully Local TLS files are present and non-empty.
+	var hasFullyLocalTLS: Bool {
+		let requiredFiles = [
+			fullyLocalTLS("server.crt"),
+			fullyLocalTLS("server.pem"),
+			fullyLocalTLS("commonName.txt"),
+		]
+		
+		return requiredFiles.allSatisfy { url in
+			guard
+				fileExists(atPath: url.path),
+				let data = try? Data(contentsOf: url)
+			else {
+				return false
+			}
+			
+			return !data.isEmpty
+		}
+	}
+	
 	/// Removes all locally stored Fully Local TLS material.
 	func removeFullyLocalTLS() throws {
 		let directory = fullyLocalTLS

@@ -2,7 +2,7 @@
 //  CustomizationPresetManager.swift
 //  Feather
 //
-//  Feather 3.4.0 Beta 1
+//  Feather 3.5.0 Beta 1
 //
 
 import Combine
@@ -33,6 +33,22 @@ struct SourceCustomizationPreset: Codable, Identifiable, Equatable {
 	var customVersion: String?
 	var iconFileName: String?
 
+	// General signing overrides
+	var appAppearance: Options.AppAppearance?
+	var minimumAppRequirement: Options.MinimumAppRequirement?
+	var signingOption: Options.SigningOption?
+
+	// App feature overrides
+	var fileSharing: Bool?
+	var itunesFileSharing: Bool?
+	var proMotion: Bool?
+	var gameMode: Bool?
+	var ipadFullscreen: Bool?
+
+	// Removal overrides
+	var removeURLScheme: Bool?
+	var removeProvisioning: Bool?
+
 	var id: String {
 		Self.makeID(
 			repositoryIdentifier: sourceRepositoryIdentifier,
@@ -45,7 +61,17 @@ struct SourceCustomizationPreset: Codable, Identifiable, Equatable {
 		customName != nil ||
 		customBundleIdentifier != nil ||
 		customVersion != nil ||
-		iconFileName != nil
+		iconFileName != nil ||
+		appAppearance != nil ||
+		minimumAppRequirement != nil ||
+		signingOption != nil ||
+		fileSharing != nil ||
+		itunesFileSharing != nil ||
+		proMotion != nil ||
+		gameMode != nil ||
+		ipadFullscreen != nil ||
+		removeURLScheme != nil ||
+		removeProvisioning != nil
 	}
 
 	var customizationSummary: String {
@@ -54,6 +80,16 @@ struct SourceCustomizationPreset: Codable, Identifiable, Equatable {
 		if customName != nil { values.append("Nome") }
 		if customBundleIdentifier != nil { values.append("Identificador") }
 		if customVersion != nil { values.append("Versão") }
+		if appAppearance != nil { values.append("Aparência") }
+		if minimumAppRequirement != nil { values.append("Requisito mínimo") }
+		if signingOption != nil { values.append("Tipo de assinatura") }
+		if fileSharing != nil { values.append("Compartilhamento") }
+		if itunesFileSharing != nil { values.append("iTunes") }
+		if proMotion != nil { values.append("ProMotion") }
+		if gameMode != nil { values.append("Modo de Jogo") }
+		if ipadFullscreen != nil { values.append("iPad") }
+		if removeURLScheme != nil { values.append("URL Scheme") }
+		if removeProvisioning != nil { values.append("Provisioning") }
 		return values.joined(separator: ", ")
 	}
 
@@ -147,30 +183,12 @@ final class CustomizationPresetManager: ObservableObject {
 
 	func apply(to options: inout Options, for app: AppInfoPresentable) {
 		guard let preset = preset(for: app) else { return }
-
-		if let customName = preset.customName {
-			options.appName = customName
-		}
-		if let customBundleIdentifier = preset.customBundleIdentifier {
-			options.appIdentifier = customBundleIdentifier
-		}
-		if let customVersion = preset.customVersion {
-			options.appVersion = customVersion
-		}
+		_apply(preset, to: &options)
 	}
 
 	func apply(to options: inout Options, for provenance: SourceAppProvenance) {
 		guard let preset = preset(for: provenance) else { return }
-
-		if let customName = preset.customName {
-			options.appName = customName
-		}
-		if let customBundleIdentifier = preset.customBundleIdentifier {
-			options.appIdentifier = customBundleIdentifier
-		}
-		if let customVersion = preset.customVersion {
-			options.appVersion = customVersion
-		}
+		_apply(preset, to: &options)
 	}
 
 	func customIcon(for provenance: SourceAppProvenance) -> UIImage? {
@@ -200,7 +218,17 @@ final class CustomizationPresetManager: ObservableObject {
 		customBundleIdentifier: String?,
 		customVersion: String?,
 		icon: UIImage?,
-		replaceIcon: Bool
+		replaceIcon: Bool,
+		appAppearance: Options.AppAppearance? = nil,
+		minimumAppRequirement: Options.MinimumAppRequirement? = nil,
+		signingOption: Options.SigningOption? = nil,
+		fileSharing: Bool? = nil,
+		itunesFileSharing: Bool? = nil,
+		proMotion: Bool? = nil,
+		gameMode: Bool? = nil,
+		ipadFullscreen: Bool? = nil,
+		removeURLScheme: Bool? = nil,
+		removeProvisioning: Bool? = nil
 	) {
 		let current = preset(for: target)
 		var iconFileName = current?.iconFileName
@@ -237,7 +265,17 @@ final class CustomizationPresetManager: ObservableObject {
 			customName: _normalized(customName),
 			customBundleIdentifier: _normalized(customBundleIdentifier),
 			customVersion: _normalized(customVersion),
-			iconFileName: iconFileName
+			iconFileName: iconFileName,
+			appAppearance: appAppearance,
+			minimumAppRequirement: minimumAppRequirement,
+			signingOption: signingOption,
+			fileSharing: fileSharing,
+			itunesFileSharing: itunesFileSharing,
+			proMotion: proMotion,
+			gameMode: gameMode,
+			ipadFullscreen: ipadFullscreen,
+			removeURLScheme: removeURLScheme,
+			removeProvisioning: removeProvisioning
 		)
 
 		_upsertOrRemove(updated)
@@ -277,6 +315,51 @@ final class CustomizationPresetManager: ObservableObject {
 		presets = []
 		_prepareDirectories()
 		_save()
+	}
+
+	private func _apply(_ preset: SourceCustomizationPreset, to options: inout Options) {
+		if let customName = preset.customName {
+			options.appName = customName
+		}
+		if let customBundleIdentifier = preset.customBundleIdentifier {
+			options.appIdentifier = customBundleIdentifier
+		}
+		if let customVersion = preset.customVersion {
+			options.appVersion = customVersion
+		}
+
+		if let appAppearance = preset.appAppearance {
+			options.appAppearance = appAppearance
+		}
+		if let minimumAppRequirement = preset.minimumAppRequirement {
+			options.minimumAppRequirement = minimumAppRequirement
+		}
+		if let signingOption = preset.signingOption {
+			options.signingOption = signingOption
+		}
+
+		if let fileSharing = preset.fileSharing {
+			options.fileSharing = fileSharing
+		}
+		if let itunesFileSharing = preset.itunesFileSharing {
+			options.itunesFileSharing = itunesFileSharing
+		}
+		if let proMotion = preset.proMotion {
+			options.proMotion = proMotion
+		}
+		if let gameMode = preset.gameMode {
+			options.gameMode = gameMode
+		}
+		if let ipadFullscreen = preset.ipadFullscreen {
+			options.ipadFullscreen = ipadFullscreen
+		}
+
+		if let removeURLScheme = preset.removeURLScheme {
+			options.removeURLScheme = removeURLScheme
+		}
+		if let removeProvisioning = preset.removeProvisioning {
+			options.removeProvisioning = removeProvisioning
+		}
 	}
 
 	private func _matches(

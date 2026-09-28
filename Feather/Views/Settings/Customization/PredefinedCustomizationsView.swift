@@ -243,7 +243,7 @@ private struct CustomizationPresetEditorView: View {
 			Section {
 				Picker(selection: $_appAppearance) {
 					Text("Padrão").tag(nil as Options.AppAppearance?)
-					ForEach(Options.AppAppearance.allCases, id: \.self) { value in
+					ForEach(Options.AppAppearance.allCases.filter { $0 != .default }, id: \.self) { value in
 						Text(value.localizedDescription).tag(value as Options.AppAppearance?)
 					}
 				} label: {
@@ -252,7 +252,7 @@ private struct CustomizationPresetEditorView: View {
 
 				Picker(selection: $_minimumAppRequirement) {
 					Text("Padrão").tag(nil as Options.MinimumAppRequirement?)
-					ForEach(Options.MinimumAppRequirement.allCases, id: \.self) { value in
+					ForEach(Options.MinimumAppRequirement.allCases.filter { $0 != .default }, id: \.self) { value in
 						Text(value.localizedDescription).tag(value as Options.MinimumAppRequirement?)
 					}
 				} label: {
@@ -267,7 +267,7 @@ private struct CustomizationPresetEditorView: View {
 			Section {
 				Picker(selection: $_signingOption) {
 					Text("Padrão").tag(nil as Options.SigningOption?)
-					ForEach(Options.SigningOption.allCases, id: \.self) { value in
+					ForEach(Options.SigningOption.allCases.filter { $0 != .default }, id: \.self) { value in
 						Text(value.localizedDescription).tag(value as Options.SigningOption?)
 					}
 				} label: {

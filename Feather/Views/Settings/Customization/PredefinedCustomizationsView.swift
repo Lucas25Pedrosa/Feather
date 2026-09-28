@@ -2,7 +2,7 @@
 //  PredefinedCustomizationsView.swift
 //  Feather
 //
-//  Feather 3.4.0 Beta 1
+//  Feather 3.5.0 Beta 1
 //
 
 import SwiftUI
@@ -43,6 +43,7 @@ struct PredefinedCustomizationsView: View {
 									Text(preset.customizationSummary)
 										.font(.footnote)
 										.foregroundStyle(.secondary)
+										.lineLimit(2)
 								}
 							}
 						}
@@ -138,6 +139,19 @@ private struct CustomizationPresetEditorView: View {
 	@State private var _bundleIdentifier = ""
 	@State private var _version = ""
 
+	@State private var _appAppearance: Options.AppAppearance?
+	@State private var _minimumAppRequirement: Options.MinimumAppRequirement?
+	@State private var _signingOption: Options.SigningOption?
+
+	@State private var _fileSharing: Bool?
+	@State private var _itunesFileSharing: Bool?
+	@State private var _proMotion: Bool?
+	@State private var _gameMode: Bool?
+	@State private var _ipadFullscreen: Bool?
+
+	@State private var _removeURLScheme: Bool?
+	@State private var _removeProvisioning: Bool?
+
 	@State private var _icon: UIImage?
 	@State private var _hasStoredCustomIcon = false
 	@State private var _iconWasChanged = false
@@ -226,6 +240,88 @@ private struct CustomizationPresetEditorView: View {
 				Text("Um campo desativado permanece exatamente como está no aplicativo original.")
 			}
 
+			Section {
+				Picker(selection: $_appAppearance) {
+					Text("Padrão").tag(nil as Options.AppAppearance?)
+					ForEach(Options.AppAppearance.allCases, id: \.self) { value in
+						Text(value.localizedDescription).tag(value as Options.AppAppearance?)
+					}
+				} label: {
+					Label("Aparência", systemImage: "paintpalette")
+				}
+
+				Picker(selection: $_minimumAppRequirement) {
+					Text("Padrão").tag(nil as Options.MinimumAppRequirement?)
+					ForEach(Options.MinimumAppRequirement.allCases, id: \.self) { value in
+						Text(value.localizedDescription).tag(value as Options.MinimumAppRequirement?)
+					}
+				} label: {
+					Label("Requisito mínimo", systemImage: "ruler")
+				}
+			} header: {
+				Text("Geral")
+			} footer: {
+				Text("Padrão significa que esta personalização não interfere na opção normal do Feather.")
+			}
+
+			Section {
+				Picker(selection: $_signingOption) {
+					Text("Padrão").tag(nil as Options.SigningOption?)
+					ForEach(Options.SigningOption.allCases, id: \.self) { value in
+						Text(value.localizedDescription).tag(value as Options.SigningOption?)
+					}
+				} label: {
+					Label("Tipo de assinatura", systemImage: "signature")
+				}
+			}
+
+			Section {
+				_booleanPicker(
+					"Compartilhamento de arquivos",
+					systemImage: "folder.badge.person.crop",
+					selection: $_fileSharing
+				)
+				_booleanPicker(
+					"Compartilhamento de arquivos do iTunes",
+					systemImage: "music.note.list",
+					selection: $_itunesFileSharing
+				)
+				_booleanPicker(
+					"ProMotion",
+					systemImage: "speedometer",
+					selection: $_proMotion
+				)
+				_booleanPicker(
+					"Modo de Jogo",
+					systemImage: "gamecontroller",
+					selection: $_gameMode
+				)
+				_booleanPicker(
+					"iPad em tela cheia",
+					systemImage: "ipad.landscape",
+					selection: $_ipadFullscreen
+				)
+			} header: {
+				Text("Recursos do app")
+			} footer: {
+				Text("Padrão mantém a configuração normal. Ativado e Desativado forçam apenas esta opção para este aplicativo.")
+			}
+
+			Section {
+				_booleanPicker(
+					"Remover esquema de URL",
+					systemImage: "ellipsis.curlybraces",
+					selection: $_removeURLScheme
+				)
+				_booleanPicker(
+					"Remover provisioning",
+					systemImage: "doc.badge.gearshape",
+					selection: $_removeProvisioning
+				)
+			} header: {
+				Text("Remoção")
+			}
+
 			if _manager.preset(for: target) != nil {
 				Section {
 					Button("Excluir personalização deste aplicativo", systemImage: "trash", role: .destructive) {
@@ -290,7 +386,22 @@ private struct CustomizationPresetEditorView: View {
 			}
 			Button("Cancelar", role: .cancel) {}
 		} message: {
-			Text("Ícone, nome, identificador e versão personalizados deste aplicativo serão removidos.")
+			Text("Todas as personalizações predefinidas deste aplicativo serão removidas.")
+		}
+	}
+
+	@ViewBuilder
+	private func _booleanPicker(
+		_ title: String,
+		systemImage: String,
+		selection: Binding<Bool?>
+	) -> some View {
+		Picker(selection: selection) {
+			Text("Padrão").tag(nil as Bool?)
+			Text("Ativado").tag(true as Bool?)
+			Text("Desativado").tag(false as Bool?)
+		} label: {
+			Label(title, systemImage: systemImage)
 		}
 	}
 
@@ -307,6 +418,19 @@ private struct CustomizationPresetEditorView: View {
 		_customizeBundleIdentifier = preset?.customBundleIdentifier != nil
 		_customizeVersion = preset?.customVersion != nil
 
+		_appAppearance = preset?.appAppearance
+		_minimumAppRequirement = preset?.minimumAppRequirement
+		_signingOption = preset?.signingOption
+
+		_fileSharing = preset?.fileSharing
+		_itunesFileSharing = preset?.itunesFileSharing
+		_proMotion = preset?.proMotion
+		_gameMode = preset?.gameMode
+		_ipadFullscreen = preset?.ipadFullscreen
+
+		_removeURLScheme = preset?.removeURLScheme
+		_removeProvisioning = preset?.removeProvisioning
+
 		_icon = preset.flatMap { _manager.customIcon(for: $0) }
 		_hasStoredCustomIcon = preset?.iconFileName != nil
 	}
@@ -318,7 +442,17 @@ private struct CustomizationPresetEditorView: View {
 			customBundleIdentifier: _customizeBundleIdentifier ? _bundleIdentifier : nil,
 			customVersion: _customizeVersion ? _version : nil,
 			icon: _icon,
-			replaceIcon: _iconWasChanged
+			replaceIcon: _iconWasChanged,
+			appAppearance: _appAppearance,
+			minimumAppRequirement: _minimumAppRequirement,
+			signingOption: _signingOption,
+			fileSharing: _fileSharing,
+			itunesFileSharing: _itunesFileSharing,
+			proMotion: _proMotion,
+			gameMode: _gameMode,
+			ipadFullscreen: _ipadFullscreen,
+			removeURLScheme: _removeURLScheme,
+			removeProvisioning: _removeProvisioning
 		)
 		dismiss()
 	}

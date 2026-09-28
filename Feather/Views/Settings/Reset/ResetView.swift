@@ -105,9 +105,8 @@ extension ResetView {
 		} header: {
 			Text("Personalizações")
 		} footer: {
-			Text("A primeira opção remove somente os ícones personalizados. Nome, identificador e versão permanecem configurados. A segunda remove todas as personalizações predefinidas.")
+			Text("A primeira opção remove somente os ícones personalizados. As demais personalizações permanecem configuradas. A segunda remove todas as personalizações predefinidas.")
 		}
-		.foregroundStyle(.red)
 	}
 
 	@ViewBuilder

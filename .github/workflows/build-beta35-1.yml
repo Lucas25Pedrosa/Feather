@@ -79,12 +79,10 @@ jobs:
           text = path.read_text(encoding="utf-8")
           flag = "-disableAutomaticPackageResolution"
           if flag not in text:
-              needle = "		-skipPackagePluginValidation \\
-"
+              needle = "\t\t-skipPackagePluginValidation \\\n"
               if needle not in text:
                   raise SystemExit("ERRO: ponto de inserção do bloqueio de pacotes não encontrado.")
-              text = text.replace(needle, needle + "		-disableAutomaticPackageResolution \\
-", 1)
+              text = text.replace(needle, needle + "\t\t-disableAutomaticPackageResolution \\\n", 1)
               path.write_text(text, encoding="utf-8")
           PY
 
@@ -188,15 +186,12 @@ jobs:
           test ! -f /tmp/feather-350-beta1/Payload/Feather.app/server.crt
           test ! -f /tmp/feather-350-beta1/Payload/Feather.app/commonName.txt
           cp packages/Feather.ipa Feather-3.5.0-Beta-1.ipa
-          shasum -a 256 Feather-3.5.0-Beta-1.ipa | tee Feather-3.5.0-Beta-1.sha256
 
       - name: Publicar Feather 3.5.0 Beta 1
         uses: actions/upload-artifact@v4
         with:
           name: Feather-3.5.0-Beta-1
-          path: |
-            Feather-3.5.0-Beta-1.ipa
-            Feather-3.5.0-Beta-1.sha256
+          path: Feather-3.5.0-Beta-1.ipa
           if-no-files-found: error
           compression-level: 0
           retention-days: 30

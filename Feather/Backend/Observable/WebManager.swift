@@ -6,6 +6,7 @@
 import Foundation
 import UIKit
 import OSLog
+import Darwin
 
 @MainActor
 final class WebManager: ObservableObject {
@@ -63,7 +64,7 @@ final class WebManager: ObservableObject {
 	}
 
 	var localAddress: String {
-		ServerInstaller.getLocalAddress() ?? "127.0.0.1"
+		Self._localNetworkAddress() ?? "127.0.0.1"
 	}
 
 	var httpURL: String {
@@ -135,4 +136,51 @@ final class WebManager: ObservableObject {
 		}
 		#endif
 	}
+	private static func _localNetworkAddress() -> String? {
+		var interfaces: UnsafeMutablePointer<ifaddrs>?
+		guard getifaddrs(&interfaces) == 0, let first = interfaces else {
+			return nil
+		}
+		defer { freeifaddrs(interfaces) }
+
+		var fallback: String?
+		var pointer: UnsafeMutablePointer<ifaddrs>? = first
+
+		while let current = pointer {
+			defer { pointer = current.pointee.ifa_next }
+
+			guard let address = current.pointee.ifa_addr else { continue }
+			guard address.pointee.sa_family == UInt8(AF_INET) else { continue }
+
+			let name = String(cString: current.pointee.ifa_name)
+			if name.hasPrefix("lo")
+				|| name.hasPrefix("utun")
+				|| name.hasPrefix("pdp_ip") {
+				continue
+			}
+
+			var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+			let result = getnameinfo(
+				address,
+				socklen_t(address.pointee.sa_len),
+				&host,
+				socklen_t(host.count),
+				nil,
+				0,
+				NI_NUMERICHOST
+			)
+			guard result == 0 else { continue }
+
+			let value = String(cString: host)
+			if name == "en0" {
+				return value
+			}
+			if fallback == nil && (name.hasPrefix("en") || name.hasPrefix("bridge")) {
+				fallback = value
+			}
+		}
+
+		return fallback
+	}
+
 }

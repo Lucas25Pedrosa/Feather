@@ -71,100 +71,12 @@ struct LibraryView: View {
 	// MARK: Body
 	var body: some View {
 		NBNavigationView(.localized("Library")) {
-			NBListAdaptable {
-				if
-					!_filteredSignedApps.isEmpty,
-					_selectedScope == .all || _selectedScope == .signed
-				{
-					NBSection(
-						.localized("Signed"),
-						secondary: _filteredSignedApps.count.description
-					) {
-						ForEach(_filteredSignedApps, id: \.uuid) { app in
-							LibraryCellView(
-								app: app,
-								selectedInfoAppPresenting: $_selectedInfoAppPresenting,
-								selectedSigningAppPresenting: $_selectedSigningAppPresenting,
-								selectedInstallAppPresenting: $_selectedInstallAppPresenting,
-								selectedAppUUIDs: $_selectedAppUUIDs
-							)
-							.compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
-						}
-					}
-				}
-				
-				if
-					!_filteredImportedApps.isEmpty,
-					_selectedScope == .all || _selectedScope == .imported
-				{
-					NBSection(
-						.localized("Imported"),
-						secondary: _filteredImportedApps.count.description
-					) {
-						ForEach(_filteredImportedApps, id: \.uuid) { app in
-							LibraryCellView(
-								app: app,
-								selectedInfoAppPresenting: $_selectedInfoAppPresenting,
-								selectedSigningAppPresenting: $_selectedSigningAppPresenting,
-								selectedInstallAppPresenting: $_selectedInstallAppPresenting,
-								selectedAppUUIDs: $_selectedAppUUIDs
-							)
-							.compatMatchedTransitionSource(id: app.uuid ?? "", ns: _namespace)
-						}
-					}
-				}
-			}
-			.searchable(text: $_searchText, placement: .platform())
-			.compatSearchScopes($_selectedScope) {
-				ForEach(Scope.allCases, id: \.displayName) { scope in
-					Text(scope.displayName).tag(scope)
-				}
-			}
-			.scrollDismissesKeyboard(.interactively)
-			.overlay {
-				if
-					_filteredSignedApps.isEmpty,
-					_filteredImportedApps.isEmpty
-				{
-					if #available(iOS 17, *) {
-						ContentUnavailableView {
-							Label(.localized("No Apps"), systemImage: "questionmark.app.fill")
-						} description: {
-							Text(.localized("Get started by importing your first IPA file."))
-						} actions: {
-							Menu {
-								_importActions()
-							} label: {
-								NBButton(.localized("Import"), style: .text)
-							}
-						}
-					}
-				}
-			}
-			.toolbar {
-				ToolbarItem(placement: .topBarLeading) {
-					EditButton()
-				}
-				
-				if _editMode.isEditing {
-					NBToolbarButton(
-						.localized("Delete"),
-						systemImage: "trash",
-						isDisabled: _selectedAppUUIDs.isEmpty
-					) {
-						_bulkDeleteSelectedApps()
-					}
-				} else {
-					NBToolbarMenu(
-						systemImage: "plus",
-						style: .icon,
-						placement: .topBarTrailing
-					) {
-						_importActions()
-					}
-				}
-			}
-			.environment(\.editMode, $_editMode)
+			_libraryPresentedView
+		}
+	}
+
+	private var _libraryPresentedView: some View {
+		_libraryBaseView
 			.sheet(item: $_selectedInfoAppPresenting) { app in
 				LibraryInfoView(app: app.base)
 			}
@@ -179,15 +91,15 @@ struct LibraryView: View {
 			}
 			.sheet(isPresented: $_isImportingPresenting) {
 				FileImporterRepresentableView(
-					allowedContentTypes:  [.ipa, .tipa],
+					allowedContentTypes: [.ipa, .tipa],
 					allowsMultipleSelection: true,
 					onDocumentsPicked: { urls in
 						guard !urls.isEmpty else { return }
-						
+
 						for url in urls {
 							let id = "FeatherManualDownload_\(UUID().uuidString)"
 							let dl = downloadManager.startArchive(from: url, id: id)
-							try? downloadManager.handlePachageFile(url: url, dl: dl)
+							try? downloadManager.handlePackageFile(url: url, dl: dl)
 						}
 					}
 				)
@@ -201,11 +113,18 @@ struct LibraryView: View {
 				}
 				Button(.localized("OK")) {
 					if let url = URL(string: _alertDownloadString) {
-						_ = downloadManager.startDownload(from: url, id: "FeatherManualDownload_\(UUID().uuidString)")
+						_ = downloadManager.startDownload(
+							from: url,
+							id: "FeatherManualDownload_\(UUID().uuidString)"
+						)
 					}
 				}
 			}
-			.onReceive(NotificationCenter.default.publisher(for: Notification.Name("Feather.installApp"))) { _ in
+			.onReceive(
+				NotificationCenter.default.publisher(
+					for: Notification.Name("Feather.installApp")
+				)
+			) { _ in
 				if let latest = _signedApps.first {
 					_selectedInstallAppPresenting = AnyApp(base: latest)
 				}
@@ -218,8 +137,132 @@ struct LibraryView: View {
 			.onChange(of: updateManager.isChecking) { isChecking in
 				_handleUpdateCheckStateChange(isChecking)
 			}
+	}
+
+	private var _libraryBaseView: some View {
+		NBListAdaptable {
+			_signedSection
+			_importedSection
+		}
+		.searchable(text: $_searchText, placement: .platform())
+		.compatSearchScopes($_selectedScope) {
+			ForEach(Scope.allCases, id: \.displayName) { scope in
+				Text(scope.displayName).tag(scope)
+			}
+		}
+		.scrollDismissesKeyboard(.interactively)
+		.overlay {
+			_emptyLibraryOverlay
+		}
+		.toolbar {
+			ToolbarItem(placement: .topBarLeading) {
+				EditButton()
+			}
+
+			if _editMode.isEditing {
+				NBToolbarButton(
+					.localized("Delete"),
+					systemImage: "trash",
+					isDisabled: _selectedAppUUIDs.isEmpty
+				) {
+					_bulkDeleteSelectedApps()
+				}
+			} else {
+				NBToolbarMenu(
+					systemImage: "plus",
+					style: .icon,
+					placement: .topBarTrailing
+				) {
+					_importActions()
+				}
+			}
+		}
+		.environment(\.editMode, $_editMode)
+	}
+
+	@ViewBuilder
+	private var _signedSection: some View {
+		if
+			!_filteredSignedApps.isEmpty,
+			_selectedScope == .all || _selectedScope == .signed
+		{
+			NBSection(
+				.localized("Signed"),
+				secondary: _filteredSignedApps.count.description
+			) {
+				ForEach(_filteredSignedApps, id: \.uuid) { app in
+					LibraryCellView(
+						app: app,
+						selectedInfoAppPresenting: $_selectedInfoAppPresenting,
+						selectedSigningAppPresenting: $_selectedSigningAppPresenting,
+						selectedInstallAppPresenting: $_selectedInstallAppPresenting,
+						selectedAppUUIDs: $_selectedAppUUIDs
+					)
+					.compatMatchedTransitionSource(
+						id: app.uuid ?? "",
+						ns: _namespace
+					)
+				}
+			}
 		}
 	}
+
+	@ViewBuilder
+	private var _importedSection: some View {
+		if
+			!_filteredImportedApps.isEmpty,
+			_selectedScope == .all || _selectedScope == .imported
+		{
+			NBSection(
+				.localized("Imported"),
+				secondary: _filteredImportedApps.count.description
+			) {
+				ForEach(_filteredImportedApps, id: \.uuid) { app in
+					LibraryCellView(
+						app: app,
+						selectedInfoAppPresenting: $_selectedInfoAppPresenting,
+						selectedSigningAppPresenting: $_selectedSigningAppPresenting,
+						selectedInstallAppPresenting: $_selectedInstallAppPresenting,
+						selectedAppUUIDs: $_selectedAppUUIDs
+					)
+					.compatMatchedTransitionSource(
+						id: app.uuid ?? "",
+						ns: _namespace
+					)
+				}
+			}
+		}
+	}
+
+	@ViewBuilder
+	private var _emptyLibraryOverlay: some View {
+		if
+			_filteredSignedApps.isEmpty,
+			_filteredImportedApps.isEmpty
+		{
+			if #available(iOS 17, *) {
+				ContentUnavailableView {
+					Label(
+						.localized("No Apps"),
+						systemImage: "questionmark.app.fill"
+					)
+				} description: {
+					Text(
+						.localized(
+							"Get started by importing your first IPA file."
+						)
+					)
+				} actions: {
+					Menu {
+						_importActions()
+					} label: {
+						NBButton(.localized("Import"), style: .text)
+					}
+				}
+			}
+		}
+	}
+
 }
 
 // MARK: - Extension: View

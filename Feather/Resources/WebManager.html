@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Feather Web Manager</title>
+<style>
+:root{color-scheme:light dark;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",sans-serif}
+body{max-width:760px;margin:0 auto;padding:32px 18px;background:Canvas;color:CanvasText}
+h1{margin-bottom:4px}p{color:GrayText}
+.card{border:1px solid color-mix(in srgb,CanvasText 14%,transparent);border-radius:18px;padding:18px;margin:18px 0}
+.drop{border:2px dashed color-mix(in srgb,CanvasText 25%,transparent);border-radius:14px;padding:36px 18px;text-align:center}
+.drop.active{border-color:#848ef9;background:color-mix(in srgb,#848ef9 12%,transparent)}
+button,.button{display:inline-block;border:0;border-radius:10px;padding:10px 14px;background:#848ef9;color:white;font-weight:600;cursor:pointer}
+input[type=file]{display:none}.row{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid color-mix(in srgb,CanvasText 10%,transparent)}
+.row:first-child{border-top:0}.name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.size{font-size:12px;color:GrayText}
+.progress{height:6px;border-radius:99px;background:color-mix(in srgb,CanvasText 12%,transparent);overflow:hidden;margin-top:10px}.bar{height:100%;width:0;background:#848ef9}
+a{color:#848ef9;text-decoration:none}button.delete{background:transparent;color:#ff453a;padding:6px}
+small{color:GrayText}
+</style>
+</head>
+<body>
+<h1>Feather Web Manager</h1>
+<p>Transfira IPAs para o Feather pela rede local.</p>
+<div class="card">
+  <div id="drop" class="drop">
+    <strong>Arraste arquivos aqui</strong><br><br>
+    <label class="button" for="files">Escolher arquivos</label>
+    <input id="files" type="file" multiple>
+    <div id="status"></div>
+  </div>
+</div>
+<div class="card">
+  <h2>Inbox</h2>
+  <div id="list"><small>Carregando…</small></div>
+</div>
+<script>
+const drop=document.getElementById('drop'),picker=document.getElementById('files'),status=document.getElementById('status'),list=document.getElementById('list');
+['dragenter','dragover'].forEach(e=>drop.addEventListener(e,x=>{x.preventDefault();drop.classList.add('active')}));
+['dragleave','drop'].forEach(e=>drop.addEventListener(e,x=>{x.preventDefault();drop.classList.remove('active')}));
+drop.addEventListener('drop',e=>upload([...e.dataTransfer.files]));
+picker.addEventListener('change',e=>upload([...e.target.files]));
+async function upload(files){
+ for(const file of files){
+  status.innerHTML='<div>'+escapeHTML(file.name)+'</div><div class="progress"><div class="bar" id="bar"></div></div>';
+  await new Promise((resolve,reject)=>{
+   const xhr=new XMLHttpRequest();
+   xhr.open('POST','/upload/'+encodeURIComponent(file.name));
+   xhr.upload.onprogress=e=>{if(e.lengthComputable)document.getElementById('bar').style.width=(e.loaded/e.total*100)+'%'};
+   xhr.onload=()=>xhr.status<300?resolve():reject(new Error('HTTP '+xhr.status));
+   xhr.onerror=()=>reject(new Error('Falha de rede'));
+   xhr.send(file);
+  }).catch(err=>status.textContent=err.message);
+ }
+ picker.value=''; await refresh();
+ setTimeout(()=>status.textContent='',1000);
+}
+async function refresh(){
+ const r=await fetch('/api/files'); if(!r.ok)return;
+ const files=await r.json();
+ list.innerHTML=files.length?'':'<small>Inbox vazio.</small>';
+ files.forEach(f=>{
+  const row=document.createElement('div');row.className='row';
+  row.innerHTML='<div class="name"><a href="/download/'+encodeURIComponent(f.name)+'">'+escapeHTML(f.name)+'</a></div><div class="size">'+formatBytes(f.size)+'</div><button class="delete">Excluir</button>';
+  row.querySelector('button').onclick=async()=>{await fetch('/api/files/'+encodeURIComponent(f.name),{method:'DELETE'});refresh()};
+  list.appendChild(row);
+ });
+}
+function formatBytes(n){if(!n)return '0 B';const u=['B','KB','MB','GB'];let i=Math.floor(Math.log(n)/Math.log(1024));i=Math.min(i,u.length-1);return (n/Math.pow(1024,i)).toFixed(i?1:0)+' '+u[i]}
+function escapeHTML(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML}
+refresh();
+</script>
+</body>
+</html>

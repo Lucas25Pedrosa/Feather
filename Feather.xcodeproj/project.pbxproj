@@ -21,12 +21,42 @@
 		3371F7322DA9ECDD00281AC6 /* Zip in Frameworks */ = {isa = PBXBuildFile; productRef = 3371F7312DA9ECDD00281AC6 /* Zip */; };
 		33CF13392DB5ACFB0021D4C5 /* SWCompression in Frameworks */ = {isa = PBXBuildFile; productRef = 33CF13382DB5ACFB0021D4C5 /* SWCompression */; };
 		570920BE2F98A4F0008C4A83 /* Feather.xcconfig in Resources */ = {isa = PBXBuildFile; fileRef = 570920BD2F98A4F0008C4A83 /* Feather.xcconfig */; };
+		F36000000000000000000001 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F36000000000000000000006 /* WidgetKit.framework */; };
+		F36000000000000000000002 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = F36000000000000000000007 /* SwiftUI.framework */; };
+		F36000000000000000000003 /* FeatherWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = F36000000000000000000008 /* FeatherWidgetExtension.appex */; platformFilter = ios; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		F36000000000000000000004 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 3379C1B12DA869A1004372DA /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = F3600000000000000000000D;
+			remoteInfo = FeatherWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		F36000000000000000000005 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				F36000000000000000000003 /* FeatherWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		336D43972DB7454A00206400 /* MobileCoreServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MobileCoreServices.framework; path = Platforms/AppleTVOS.platform/Developer/SDKs/AppleTVOS18.2.sdk/System/Library/Frameworks/MobileCoreServices.framework; sourceTree = DEVELOPER_DIR; };
 		3379C1B92DA869A1004372DA /* Feather.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Feather.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		570920BD2F98A4F0008C4A83 /* Feather.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Feather.xcconfig; sourceTree = "<group>"; };
+		F36000000000000000000006 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		F36000000000000000000007 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		F36000000000000000000008 /* FeatherWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FeatherWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -38,7 +68,21 @@
 			);
 			target = 3379C1B82DA869A1004372DA /* Feather */;
 		};
-/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		F36000000000000000000009 /* Exceptions for FeatherWidgetExtension */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = F3600000000000000000000D /* FeatherWidgetExtension */;
+		};
+		F3600000000000000000000A /* Shared download attributes in widget */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Backend/Observable/DownloadProgressAttributes.swift,
+			);
+			target = F3600000000000000000000D /* FeatherWidgetExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet */
 
 /* Begin PBXFileSystemSynchronizedGroupBuildPhaseMembershipExceptionSet section */
 		33CF134C2DB5B9BC0021D4C5 /* Exceptions for "Feather" folder in "Copy Bundle Resources" phase from "Feather" target */ = {
@@ -56,8 +100,17 @@
 			exceptions = (
 				3371F6492DA92A1800281AC6 /* Exceptions for "Feather" folder in "Feather" target */,
 				33CF134C2DB5B9BC0021D4C5 /* Exceptions for "Feather" folder in "Copy Bundle Resources" phase from "Feather" target */,
+				F3600000000000000000000A /* Shared download attributes in widget */,
 			);
 			path = Feather;
+			sourceTree = "<group>";
+		};
+		F3600000000000000000000B /* FeatherWidgetExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				F36000000000000000000009 /* Exceptions for FeatherWidgetExtension */,
+			);
+			path = FeatherWidgetExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -83,6 +136,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F3600000000000000000000C /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				F36000000000000000000001 /* WidgetKit.framework in Frameworks */,
+				F36000000000000000000002 /* SwiftUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -90,6 +152,8 @@
 			isa = PBXGroup;
 			children = (
 				336D43972DB7454A00206400 /* MobileCoreServices.framework */,
+				F36000000000000000000006 /* WidgetKit.framework */,
+				F36000000000000000000007 /* SwiftUI.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -98,6 +162,7 @@
 			isa = PBXGroup;
 			children = (
 				3379C1BB2DA869A1004372DA /* Feather */,
+				F3600000000000000000000B /* FeatherWidgetExtension */,
 				3371F7302DA9ECDD00281AC6 /* Frameworks */,
 				3379C1BA2DA869A1004372DA /* Products */,
 				570920BD2F98A4F0008C4A83 /* Feather.xcconfig */,
@@ -108,6 +173,7 @@
 			isa = PBXGroup;
 			children = (
 				3379C1B92DA869A1004372DA /* Feather.app */,
+				F36000000000000000000008 /* FeatherWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -123,11 +189,13 @@
 				3379C1B62DA869A1004372DA /* Frameworks */,
 				3379C1B72DA869A1004372DA /* Resources */,
 				3379BC662DC9DB32004372DA /* Copy Acknowledgements */,
+				F36000000000000000000005 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 				339776072DC9D0F800642FFB /* PBXTargetDependency */,
+				F36000000000000000000010 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				3379C1BB2DA869A1004372DA /* Feather */,
@@ -151,6 +219,28 @@
 			productReference = 3379C1B92DA869A1004372DA /* Feather.app */;
 			productType = "com.apple.product-type.application";
 		};
+		F3600000000000000000000D /* FeatherWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = F36000000000000000000013 /* Build configuration list for PBXNativeTarget "FeatherWidgetExtension" */;
+			buildPhases = (
+				F3600000000000000000000F /* Sources */,
+				F3600000000000000000000C /* Frameworks */,
+				F3600000000000000000000E /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				F3600000000000000000000B /* FeatherWidgetExtension */,
+			);
+			name = FeatherWidgetExtension;
+			packageProductDependencies = (
+			);
+			productName = FeatherWidgetExtension;
+			productReference = F36000000000000000000008 /* FeatherWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -164,6 +254,9 @@
 					3379C1B82DA869A1004372DA = {
 						CreatedOnToolsVersion = 16.2;
 						LastSwiftMigration = 1620;
+					};
+					F3600000000000000000000D = {
+						CreatedOnToolsVersion = 26.0;
 					};
 				};
 			};
@@ -204,6 +297,7 @@
 			projectRoot = "";
 			targets = (
 				3379C1B82DA869A1004372DA /* Feather */,
+				F3600000000000000000000D /* FeatherWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -214,6 +308,13 @@
 			buildActionMask = 2147483647;
 			files = (
 				570920BE2F98A4F0008C4A83 /* Feather.xcconfig in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		F3600000000000000000000E /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -244,12 +345,25 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F3600000000000000000000F /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
 		339776072DC9D0F800642FFB /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			productRef = 339776062DC9D0F800642FFB /* LicensePlistBuildTool */;
+		};
+		F36000000000000000000010 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			platformFilter = ios;
+			target = F3600000000000000000000D /* FeatherWidgetExtension */;
+			targetProxy = F36000000000000000000004 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -502,6 +616,68 @@
 			};
 			name = Release;
 		};
+		F36000000000000000000011 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 570920BD2F98A4F0008C4A83 /* Feather.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FeatherWidgetExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Feather Downloads";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FEATHER_PROJECT_VERSION)-debug";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(FEATHER_PRODUCT_BUNDLE_IDENTIFIER)$(FEATHER_DISAMBIGUATOR).DownloadWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F36000000000000000000012 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 570920BD2F98A4F0008C4A83 /* Feather.xcconfig */;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_IDENTITY = "";
+				CODE_SIGN_STYLE = Manual;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = FeatherWidgetExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = "Feather Downloads";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.2;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = "$(FEATHER_PROJECT_VERSION)";
+				PRODUCT_BUNDLE_IDENTIFIER = "$(FEATHER_PRODUCT_BUNDLE_IDENTIFIER).DownloadWidget";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -519,6 +695,15 @@
 			buildConfigurations = (
 				3379C1CE2DA869A3004372DA /* Debug */,
 				3379C1CF2DA869A3004372DA /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		F36000000000000000000013 /* Build configuration list for PBXNativeTarget "FeatherWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F36000000000000000000011 /* Debug */,
+				F36000000000000000000012 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -71,7 +71,7 @@ final class WebManager: ObservableObject {
 	}
 
 	var webdavURL: String {
-		"dav://\(localAddress):\(port)/"
+		"http://\(localAddress):\(port)/"
 	}
 
 	func start() {

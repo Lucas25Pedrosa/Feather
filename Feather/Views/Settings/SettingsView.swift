@@ -89,6 +89,9 @@ struct SettingsView: View {
 					NavigationLink(destination: InstallationView()) {
 						Label(.localized("Installation"), systemImage: "arrow.down.circle")
 					}
+					NavigationLink(destination: WebManagerView()) {
+						Label("Web Manager", systemImage: "externaldrive.badge.wifi")
+					}
 					NavigationLink(destination: TweakCatalogView()) {
 						Label("Tweaks e atualizações", systemImage: "shippingbox")
 					}

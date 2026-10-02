@@ -385,6 +385,11 @@ class DownloadManager: NSObject, ObservableObject {
 		#endif
 	}
 
+	// Compatibility with the historical Feather typo used by older call sites.
+	func handlePachageFile(url: URL, dl: Download) throws {
+		try handlePackageFile(url: url, dl: dl)
+	}
+
 	func handlePackageFile(url: URL, dl: Download) throws {
 		FR.handlePackageFile(url, download: dl) { err in
 			if err != nil {

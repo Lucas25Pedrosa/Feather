@@ -1,0 +1,124 @@
+# Feather 3.6.0 Beta 1 validation
+name: Build Feather 3.6.0 Beta 1
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 3.6.0-background-liveactivity-webmanager
+
+permissions:
+  contents: read
+
+concurrency:
+  group: Feather-3.6.0-Beta-1
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout Feather 3.6.0 Beta 1
+        uses: actions/checkout@v4
+        with:
+          ref: 3.6.0-background-liveactivity-webmanager
+          submodules: recursive
+
+      - name: Selecionar Xcode 26.2
+        run: |
+          set -euo pipefail
+          XCODE_PATH=""
+          for candidate in /Applications/Xcode_26.2.app /Applications/Xcode_26.2.0.app
+          do
+            if [ -d "$candidate" ]; then
+              XCODE_PATH="$candidate"
+              break
+            fi
+          done
+          if [ -z "$XCODE_PATH" ]; then
+            echo 'ERRO: Xcode 26.2 não está instalado neste runner.'
+            ls -1 /Applications | grep '^Xcode' || true
+            exit 1
+          fi
+          sudo xcode-select -s "$XCODE_PATH"
+          xcodebuild -version
+
+      - name: Configurar identidade da Beta 1
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          xc = Path("Feather.xcconfig")
+          text = xc.read_text(encoding="utf-8")
+          text = text.replace(
+              "FEATHER_PRODUCT_BUNDLE_IDENTIFIER=com.feather.lucas",
+              "FEATHER_PRODUCT_BUNDLE_IDENTIFIER=com.featherbeta.lucas",
+          )
+          if "FEATHER_PROJECT_VERSION=3.6.0" not in text:
+              raise SystemExit("ERRO: versão 3.6.0 não encontrada.")
+          xc.write_text(text, encoding="utf-8")
+
+          project = Path("Feather.xcodeproj/project.pbxproj")
+          p = project.read_text(encoding="utf-8")
+          p = p.replace("CURRENT_PROJECT_VERSION = 1;", "CURRENT_PROJECT_VERSION = 30601;")
+          p = p.replace(
+              "INFOPLIST_KEY_CFBundleDisplayName = Feather;",
+              'INFOPLIST_KEY_CFBundleDisplayName = "Feather Beta";',
+          )
+          project.write_text(p, encoding="utf-8")
+          PY
+
+      - name: Compilar Feather 3.6.0 Beta 1
+        run: |
+          set -o pipefail
+          make iphoneos 2>&1 | tee feather-build.log
+
+      - name: Publicar log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Feather-3.6.0-Beta-1-build-log
+          path: feather-build.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Validar IPA e Live Activity extension
+        run: |
+          set -euo pipefail
+          test -f packages/Feather.ipa
+          unzip -t packages/Feather.ipa >/dev/null
+
+          rm -rf /tmp/feather-360-beta1
+          mkdir -p /tmp/feather-360-beta1
+          unzip -q packages/Feather.ipa -d /tmp/feather-360-beta1
+
+          APP=/tmp/feather-360-beta1/Payload/Feather.app
+          test -d "$APP"
+
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")
+          BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")
+          DISPLAY_NAME=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleDisplayName' "$APP/Info.plist")
+          LIVE=$(/usr/libexec/PlistBuddy -c 'Print :NSSupportsLiveActivities' "$APP/Info.plist")
+
+          test "$VERSION" = "3.6.0"
+          test "$BUNDLE_ID" = "com.featherbeta.lucas"
+          test "$DISPLAY_NAME" = "Feather Beta"
+          test "$LIVE" = "true"
+
+          WIDGET="$APP/PlugIns/FeatherWidgetExtension.appex"
+          test -d "$WIDGET"
+          WIDGET_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$WIDGET/Info.plist")
+          test "$WIDGET_ID" = "com.featherbeta.lucas.DownloadWidget"
+
+          cp packages/Feather.ipa Feather-3.6.0-Beta-1.ipa
+
+      - name: Publicar Feather 3.6.0 Beta 1
+        uses: actions/upload-artifact@v4
+        with:
+          name: Feather-3.6.0-Beta-1
+          path: Feather-3.6.0-Beta-1.ipa
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

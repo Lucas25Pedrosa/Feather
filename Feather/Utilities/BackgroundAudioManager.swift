@@ -12,55 +12,62 @@ import AVFoundation
 final class BackgroundAudioManager {
 	static let shared = BackgroundAudioManager()
 
-	private let _engine = AVAudioEngine()
-	private var _owners = Set<String>()
-	private let _lock = NSLock()
+	private let engine = AVAudioEngine()
+	private let lock = NSLock()
+	private var owners = Set<String>()
+
+	private lazy var silenceNode = AVAudioSourceNode { _, _, _, audioBufferList -> OSStatus in
+		let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
+		for buffer in buffers {
+			if let data = buffer.mData {
+				memset(data, 0, Int(buffer.mDataByteSize))
+			}
+		}
+		return noErr
+	}
 
 	private init() {}
 
 	func start(owner: String = "legacy") {
-		_lock.lock()
-		let shouldStart = _owners.isEmpty
-		_owners.insert(owner)
-		_lock.unlock()
+		lock.lock()
+		let shouldStart = owners.isEmpty
+		owners.insert(owner)
+		lock.unlock()
 
-		guard shouldStart else { return }
+		guard shouldStart, !engine.isRunning else { return }
 
 		do {
 			let session = AVAudioSession.sharedInstance()
 			try session.setCategory(.playback, options: [.mixWithOthers])
 			try session.setActive(true)
 
-			let silence = AVAudioSourceNode { _, _, _, audioBufferList -> OSStatus in
-				let buffers = UnsafeMutableAudioBufferListPointer(audioBufferList)
-				for buffer in buffers {
-					if let data = buffer.mData {
-						memset(data, 0, Int(buffer.mDataByteSize))
-					}
-				}
-				return noErr
+			if !engine.attachedNodes.contains(silenceNode) {
+				engine.attach(silenceNode)
+				engine.connect(
+					silenceNode,
+					to: engine.mainMixerNode,
+					format: nil
+				)
 			}
 
-			_engine.attach(silence)
-			_engine.connect(silence, to: _engine.mainMixerNode, format: nil)
-			try _engine.start()
+			try engine.start()
 		} catch {
-			_lock.lock()
-			_owners.remove(owner)
-			_lock.unlock()
+			lock.lock()
+			owners.remove(owner)
+			lock.unlock()
 			print("failed to start background audio:", error)
 		}
 	}
 
 	func stop(owner: String = "legacy") {
-		_lock.lock()
-		_owners.remove(owner)
-		let shouldStop = _owners.isEmpty
-		_lock.unlock()
+		lock.lock()
+		owners.remove(owner)
+		let shouldStop = owners.isEmpty
+		lock.unlock()
 
 		guard shouldStop else { return }
 
-		_engine.stop()
+		engine.stop()
 		try? AVAudioSession.sharedInstance().setActive(false)
 	}
 }

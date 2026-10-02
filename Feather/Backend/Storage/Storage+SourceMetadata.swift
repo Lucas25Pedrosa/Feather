@@ -9,7 +9,7 @@ import AltSourceKit
 import CoreData
 import Foundation
 
-struct SourceAppProvenance: Equatable {
+struct SourceAppProvenance: Equatable, Codable {
 	let sourceRepositoryURL: URL
 	let sourceRepositoryIdentifier: String?
 	let sourceRepositoryName: String?
